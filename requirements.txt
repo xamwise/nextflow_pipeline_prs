@@ -1,0 +1,4 @@
+R:
+install.packages(c("devtools","RcppArmadillo", "data.table", "Matrix"), dependencies=TRUE)
+library(devtools)
+install_github("tshmak/lassosum")

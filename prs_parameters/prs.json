@@ -1,0 +1,161 @@
+{  
+    "data": "",
+    "quality_control":
+    {
+        "input": "",
+        "out": "",
+        "maf": 0.05,
+        "mind": 0.1,
+        "geno": 0.1,
+        "hwe": 0.000001
+    },
+   "baseline" : 
+   {
+        "file": "",
+        "sup_data": ""
+    },
+    "prsice":
+    {
+        "base": "",
+        "pheno": "",
+        "target": "",
+        "out": "",
+        "snp": "",
+        "a1": "",  
+        "a2": "",
+        "stat": "",
+        "beta": "",
+        "pvalue": "",
+        "binary_target": "",
+        "bar_levels": "",
+        "no_full": "",
+        "fastscore": ""
+    },
+    "prs_cs":
+    {
+        "ref_dir": "",
+        "bim_prefix": "",
+        "sst_file": "",
+        "n_gwas": ,
+        "out_dir": "",
+        "a": ,
+        "b": ,
+        "phi": ,
+        "n_iter": ,
+        "n_burnin": ,
+        "thin": ,
+        "chrom": ,
+        "beta_std": ,
+        "write_psi": ,
+        "write_posterior_samples": ,
+        "seed": ""
+    },
+    "prs_csx":
+    {
+        "ref_dir": "",
+        "sst_file": "",
+        "bim_prefix": "",
+        "n_gwas": ,
+        "pop": ,
+        "out_dir": "",
+        "out_name": ,
+        "a": ,
+        "b": ,
+        "phi": ,
+        "n_iter": ,
+        "n_burnin": ,
+        "thin": ,
+        "chrom": ,
+        "meta": ,
+        "write_pst": ,
+        "seed": ""
+    },
+    "sct":
+    {
+        "ref_dir" : "", 
+        "sst_file" : ""
+    },
+    "ldpred" :
+    {
+
+    },
+    "ldpred2" :
+    {
+        "path": "",
+        "bed": "",
+        "pheno": "",
+        "cov": "",
+        "pcs": "",
+        "ld": "",
+        "sum_stats": "",
+        "trait": "",
+        "model": ""
+    },
+    "ldpred_funct" :
+    {
+        "plinkfile": "",
+        "outCoord": "",
+        "statsfile": "",
+        "functfile": "",
+        "outLdpredfunct": "",
+        "outValidate": "",
+        "phenotype": "",
+        "N": 0,
+        "h2": 0.0,
+        "ld_radius": 0,
+        "K": 0
+    },
+    "lassosum" :
+    {
+        "path": "",
+        "bed": "",
+        "pheno": "",
+        "cov": "",
+        "pcs": "",
+        "ld": "",
+        "sum_stats": ""
+    },
+    "lassosum2" :
+    {
+        "path": "",
+        "bed": "",
+        "pheno": "",
+        "cov": "",
+        "pcs": "",
+        "ld": "",
+        "sum_stats": ""
+    },
+    "prset" :
+    {
+        "base": "",
+        "pheno": "",
+        "target": "",
+        "out": "",
+        "snp": "",
+        "a1": "",  
+        "a2": "",
+        "stat": "",
+        "beta": "",
+        "pvalue": "",
+        "binary_target": "",
+        "bar_levels": "",
+        "no_full": "",
+        "fastscore": "",
+        "bed": "",
+        "multi-plot": 10
+    },
+    "bridge_prs" :
+    {
+
+    },
+    "gaudi" :
+    {
+
+    },
+    "sbayesr":
+    {
+
+    }
+    
+
+}
