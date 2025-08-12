@@ -4,20 +4,26 @@ process sbayesr {
     publishDir "out/${params.run_id}/sbayesr", mode: 'copy'
 
     input:
+    val ma_file
+    val ldfolder
+    val out_prefix
+    val annot
     
-    output:
-    path('sbayesr*.html'), emit: sbayesr, optional: true
+
+
+    out:
+    val ${out_prefix}_sbrc
 
     script:
     """
-    /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/gctb --sbayes R 
-     --ldm ../ldm/sparse/chr22/1000G_eur_chr22.ldm.sparse
-     --pi 0.95,0.02,0.02,0.01
-     --gamma 0.0,0.01,0.1,1
-     --gwas-summary ../ma/sim_1.ma
-     --chain-length 10000
-     --burn-in 2000
-     --out-freq 10
-     --out sim_1
+    Rscript -e "SBayesRC::tidy(mafile='$ma_file', LDdir='$ld_folder', \
+                  output='${out_prefix}_tidy.ma', log2file=TRUE)"
+
+    Rscript -e "SBayesRC::impute(mafile='${out_prefix}_tidy.ma', LDdir='$ld_folder', \
+                  output='${out_prefix}_imp.ma', log2file=TRUE)"
+
+    Rscript -e "SBayesRC::sbayesrc(mafile='${out_prefix}_imp.ma', LDdir='$ld_folder', \
+                  outPrefix='${out_prefix}_sbrc', annot='$annot', log2file=TRUE)"
+    
      """
 }

@@ -1,15 +1,15 @@
 {  
     "qc_sum": 
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/sum_stats/Height.gwas.txt.gz",
-        "out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/sum_stats/Height.QC.gz",
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.gwas.txt.gz",
+        "out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.QC.gz",
         "info": 0.8,
         "maf": 0.01
     },
     "qc":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR",
-        "out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR",
+        "out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
         "maf": 0.01,
         "mind": 0.01,
         "geno": 0.01,
@@ -17,85 +17,85 @@
     },
     "pruning":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR",
-        "out":"/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "keep": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.fam",
-        "extract": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.snplist"
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR",
+        "out":"/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "keep": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.fam",
+        "extract": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.snplist"
     },
     "het":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR",
-        "out":"/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "keep": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.fam",
-        "extract": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.prune.in"
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR",
+        "out":"/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "keep": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.fam",
+        "extract": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.prune.in"
     },
     "valid_samples":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.het",
-        "out":"/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.valid.sample"
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.het",
+        "out":"/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.valid.sample"
     },
     "mismatching_snps":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.bim",
-        "sum_stats": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/sum_stats/Height.QC.gz",
-        "snp_list": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.snplist",
-        "mismatch": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.mismatch",
-        "out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.a1"
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.bim",
+        "sum_stats": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.QC.gz",
+        "snp_list": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.snplist",
+        "mismatch": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.mismatch",
+        "out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.a1"
     },
     "sex_check":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR",
-        "out":"/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "extract": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.prune.in",
-        "keep": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.valid.sample",
-        "update_in": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.sexcheck",
-        "update_out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.valid"
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR",
+        "out":"/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "extract": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.prune.in",
+        "keep": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.valid.sample",
+        "update_in": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.sexcheck",
+        "update_out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.valid"
     },
     "relatedness":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR",
-        "out":"/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "extract": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.prune.in",
-        "keep": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.valid",
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR",
+        "out":"/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "extract": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.prune.in",
+        "keep": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.valid",
         "cutoff": 0.125
     },
     "qc_wrap_up":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR",
-        "out":"/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "extract": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.snplist",
-        "keep": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.rel.id",
-        "exclude": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.mismatch",
-        "a1": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.a1"
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR",
+        "out":"/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "extract": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.snplist",
+        "keep": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.rel.id",
+        "exclude": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.mismatch",
+        "a1": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.a1"
     },
     "pcs":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "out":"/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR",
-        "extract": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC.prune.in",
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "out":"/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR",
+        "extract": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.prune.in",
         "pca": 6
     },
     "lassosum":
     {
-        "pheno": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.height",
-        "cov": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.cov",
-        "pcs": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.eigenvec",
-        "sum_stats": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/sum_stats/Height.QC.gz",
-        "out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/results/EUR/lassosum"
+        "pheno": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.height",
+        "cov": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.cov",
+        "pcs": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.eigenvec",
+        "sum_stats": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.QC.gz",
+        "out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/results/EUR/lassosum"
     },
     "combine_cov":
     {
-        "cov": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.cov",
-        "pcs": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.eigenvec",
-        "out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.covariate"
+        "cov": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.cov",
+        "pcs": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.eigenvec",
+        "out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.covariate"
     },
     "prsice":
     {
-        "target": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "base": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/sum_stats/Height.QC.gz",
-        "cov": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.covariate",
-        "pheno": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.height",
-        "out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/results/EUR/prsice",
+        "target": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "base": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.QC.gz",
+        "cov": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.covariate",
+        "pheno": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.height",
+        "out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/results/EUR/prsice",
         "a1": "A1",
         "a2": "A2",
         "stat": "OR",
@@ -105,40 +105,40 @@
     },
     "ldpred2":
     {
-        "bed": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "sum_stats": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/sum_stats/Height.QC.gz",
-        "cov": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.cov",
-        "pcs": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.eigenvec",
-        "pheno": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/raw/EUR/EUR.height",
-        "out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/results/EUR/ldpred2",
-        "ld": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/LD/map.rds",
+        "bed": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "sum_stats": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.QC.gz",
+        "cov": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.cov",
+        "pcs": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.eigenvec",
+        "pheno": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.height",
+        "out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/results/EUR/ldpred2",
+        "ld": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/LD/map.rds",
         "trait": "quant",
         "model": "inf"
     },
     "filter_snps":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "extract": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.snplist"
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "extract": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.snplist"
     },
     "filter_participants":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "keep": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.samples"
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "keep": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.samples"
     },
     "prs_cs_preprocess":
     {
-        "input": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/sum_stats/Height.QC.gz",
-        "out": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/sum_stats/Height.prs_cs.txt"
+        "input": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.QC.gz",
+        "out": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.prs_cs.txt"
     },
     "prs_cs":
     {
-        "ref_dir": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/LD/ldblk_1kg_eur",
-        "bim_prefix": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/qc/EUR.QC",
-        "sst_file": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/supplement_data/sum_stats/Height.prs_cs.txt",
+        "ref_dir": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/LD/ldblk_1kg_eur",
+        "bim_prefix": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC",
+        "sst_file": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.prs_cs.txt",
         "n_gwas": 20000,
-        "out_dir": "/Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/data/results/EUR"
+        "out_dir": "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/results/EUR"
     }
 
 }

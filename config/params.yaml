@@ -1,0 +1,65 @@
+# Pipeline Parameters Configuration
+# This file can be used with: nextflow run main.nf -params-file params.yaml
+
+# General Settings
+population: EUR
+base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
+
+# Pipeline Control
+run_qc: true
+run_prs: true
+run_dl: false
+use_existing_qc: false
+
+# PRS Model Selection
+run_lassosum: true
+run_prsice: true
+run_ldpred2: true
+run_prs_cs: true
+
+# Quality Control Parameters
+qc:
+  maf: 0.01
+  mind: 0.01
+  geno: 0.01
+  hwe: 1e-6
+
+# Summary Statistics QC
+qc_sum:
+  info: 0.8
+  maf: 0.01
+
+# Relatedness Settings
+relatedness:
+  cutoff: 0.125
+
+# Principal Component Analysis
+pcs:
+  pca: 6
+
+# PRSice-2 Parameters
+prsice:
+  a1: A1
+  a2: A2
+  stat: OR
+  binary_target: F
+  base_maf: "MAF:0.01"
+  base_info: "INFO:0.8"
+
+# LDpred2 Parameters
+ldpred2:
+  trait: quant
+  model: inf
+
+# PRS-CS Parameters
+prs_cs:
+  n_gwas: 20000
+
+# Output Directories (relative to base_dir)
+output_dir: data/results
+qc_dir: data/qc
+
+# Resource Allocation
+max_memory: 128.GB
+max_cpus: 16
+max_time: 48.h

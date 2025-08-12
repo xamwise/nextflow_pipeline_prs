@@ -17,7 +17,7 @@ process lassosum{
 
     script:
     """
-    Rscript /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/lassosum.R --bed $bed --pheno $pheno --cov $cov --pcs $pcs --sum_stats $sum_stats --out $out
+    Rscript ${params.base_dir}/bin/lassosum.R --bed $bed --pheno $pheno --cov $cov --pcs $pcs --sum_stats $sum_stats --out $out
     """
 
 }

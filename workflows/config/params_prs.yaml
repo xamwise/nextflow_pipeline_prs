@@ -1,0 +1,41 @@
+# PRS Models Pipeline Parameters
+# Usage: nextflow run workflows/prs_models_pipeline.nf -params-file params_prs_only.yaml
+
+# General Settings
+population: EUR
+base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
+
+# Use existing QC data
+use_existing_qc: true
+qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.*
+pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.eigenvec
+sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.QC.gz
+
+# Model Selection
+run_lassosum: true
+run_prsice: true
+run_ldpred2: true
+run_prs_cs: true
+
+# PRSice Parameters
+prsice:
+  a1: A1
+  a2: A2
+  stat: OR
+  binary_target: F
+  base_maf: "MAF:0.01"
+  base_info: "INFO:0.8"
+
+# LDpred2 Parameters
+ldpred2:
+  trait: quant
+  model: inf
+
+# PRS-CS Parameters
+prs_cs:
+  n_gwas: 20000
+
+# Resources
+max_memory: 64.GB
+max_cpus: 16
+max_time: 24.h

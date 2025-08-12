@@ -14,7 +14,7 @@ process valid_samples{
 
     script:
     """
-    Rscript /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/valid_samples.R   --file $input \\
+    Rscript ${params.base_dir}/bin/valid_samples.R   --file $input \\
                                     --out $out
     """
 }

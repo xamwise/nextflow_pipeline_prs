@@ -25,12 +25,13 @@ process prset {
     output:
     out
 
+
+
     script:
     """
-    
 
-    Rscript /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/PRSice.R \\
-        --prsice PRSice_mac  \\
+    Rscript ${params.base_dir}/bin/PRSice.R \\
+        --prsice ${params.base_dir}/bin/PRSice_mac  \\
         --base $base \\
         --target $target \\
         --A1 $a1 \\

@@ -17,6 +17,6 @@ process mismatching_snps{
 
     script:
     """
-    Rscript /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/mismatching_snps.R --file $input --sumstats $sum_stats --snplist $snp_list --mismatch $mismatch --out $out
+    Rscript ${params.base_dir}/bin/mismatching_snps.R --file $input --sumstats $sum_stats --snplist $snp_list --mismatch $mismatch --out $out
     """
 }

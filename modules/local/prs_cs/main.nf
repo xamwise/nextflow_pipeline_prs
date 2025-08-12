@@ -102,7 +102,7 @@ process prs_cs {
 
     script:
     """
-    python /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/PRScs.py \\
+    python ${params.base_dir}/bin/PRScs.py \\
         --ref_dir $ref_dir \\
         --bim_prefix $bim_prefix \\
         --sst_file $sst_file \\

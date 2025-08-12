@@ -13,7 +13,7 @@ process prs_cs_preprocess {
 
     script:
     """
-    python /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/prs_cs_preprocess.py \\
+    python ${params.base_dir}/bin/prs_cs_preprocess.py \\
     --input $input \\
     --out $out 
     """

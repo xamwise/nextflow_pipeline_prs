@@ -13,6 +13,6 @@ process OR_to_beta{
 
     script:
     """
-    Rscript /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/OR_to_beta.R --input $input --out $out
+    Rscript ${params.base_dir}/bin/OR_to_beta.R --input $input --out $out
     """
 }

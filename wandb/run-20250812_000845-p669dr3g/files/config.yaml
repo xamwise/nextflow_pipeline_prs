@@ -1,0 +1,205 @@
+_wandb:
+    value:
+        cli_version: 0.21.1
+        e:
+            337myrq8okaz4qbac6e0srtr96f5j366:
+                apple:
+                    ecpuCores: 4
+                    gpuCores: 30
+                    memoryGb: 32
+                    name: Apple M2 Max
+                    pcpuCores: 8
+                    ramTotalBytes: "34359738368"
+                args:
+                    - --genotype_file
+                    - out/genotypes.h5
+                    - --phenotype_file
+                    - out/phenotypes.csv
+                    - --indices_file
+                    - out/indices.npz
+                    - --params_file
+                    - config/training_config.yaml
+                    - --fold
+                    - "0"
+                    - --output_model
+                    - out/model.pt
+                    - --output_metrics
+                    - out/metrics.json
+                    - --output_log
+                    - out/log.csv
+                codePath: bin/train_model.py
+                codePathLocal: bin/train_model.py
+                cpu_count: 12
+                cpu_count_logical: 12
+                disk:
+                    /:
+                        total: "994662584320"
+                        used: "431910699008"
+                email: max.schuran@tum.de
+                executable: /Users/max/miniconda3/envs/prs_methods/bin/python
+                git:
+                    commit: 7fd352375e2978f02bb09be218c69f7ad47071c5
+                    remote: https://github.com/xamwise/nextflow_pipeline_prs.git
+                host: Maxs-MacBook-Pro.local
+                memory:
+                    total: "34359738368"
+                os: macOS-15.6-arm64-arm-64bit
+                program: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/bin/train_model.py
+                python: CPython 3.10.16
+                root: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
+                startedAt: "2025-08-11T14:08:45.714894Z"
+                writerId: 337myrq8okaz4qbac6e0srtr96f5j366
+        m: []
+        python_version: 3.10.16
+        t:
+            "1":
+                - 1
+                - 5
+                - 53
+            "2":
+                - 1
+                - 5
+                - 53
+            "3":
+                - 1
+                - 13
+                - 15
+                - 16
+            "4": 3.10.16
+            "5": 0.21.1
+            "10":
+                - 20
+            "12": 0.21.1
+            "13": darwin-arm64
+augment_train:
+    value: true
+augmentation_params:
+    value:
+        noise_std: 0.05
+        shuffle_regions: 10
+        snp_dropout: 0.1
+batch_size:
+    value: 32
+cuda_deterministic:
+    value: false
+cv:
+    value:
+        n_folds: 5
+        stratified: true
+early_stopping:
+    value:
+        min_delta: 0.0001
+        patience: 20
+gradient_clip:
+    value: 1
+hyperparameter_search:
+    value:
+        batch_size:
+            choices:
+                - 16
+                - 32
+                - 64
+                - 128
+            type: categorical
+        dropout_rate:
+            high: 0.5
+            low: 0.1
+            type: float
+        learning_rate:
+            high: "1e-2"
+            log: true
+            low: "1e-5"
+            type: float
+        model_type:
+            choices:
+                - mlp
+                - cnn
+                - transformer
+                - attention
+            type: categorical
+        weight_decay:
+            high: "1e-2"
+            log: true
+            low: "1e-6"
+            type: float
+log_interval:
+    value: 10
+loss_function:
+    value: mse
+max_epochs:
+    value: 100
+metrics:
+    value:
+        - mse
+        - mae
+        - r2
+        - correlation
+        - explained_variance
+model:
+    value:
+        activation: relu
+        attention_dim: 128
+        batch_norm: true
+        channels:
+            - 32
+            - 64
+            - 128
+        d_ff: 1024
+        d_model: 256
+        dropout_rate: 0.3
+        fc_dims:
+            - 256
+            - 128
+        hidden_dim: 256
+        hidden_dims:
+            - 2048
+            - 1024
+            - 512
+            - 256
+        input_dim: 483
+        kernel_sizes:
+            - 7
+            - 5
+            - 3
+        model_type: mlp
+        n_attention_heads: 4
+        n_heads: 8
+        n_layers: 4
+        output_dim: 1
+        pool_sizes:
+            - 2
+            - 2
+            - 2
+num_workers:
+    value: 4
+optimizer:
+    value:
+        lr: 0.001
+        momentum: 0.9
+        type: adamw
+        weight_decay: 0.01
+preprocessing:
+    value:
+        impute_missing: false
+        maf_threshold: 0.01
+        remove_low_maf: false
+        standardize: false
+save_checkpoint_interval:
+    value: 5
+scheduler:
+    value:
+        factor: 0.1
+        gamma: 0.1
+        patience: 10
+        step_size: 30
+        type: reduce_on_plateau
+seed:
+    value: 42
+use_cuda:
+    value: false
+use_wandb:
+    value: true
+wandb_entity:
+    value: null
+wandb_project:
+    value: prs-prediction

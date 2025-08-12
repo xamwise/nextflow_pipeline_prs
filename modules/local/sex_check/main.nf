@@ -25,6 +25,6 @@ process sex_check{
     --check-sex \\
     --out $out
 
-    Rscript /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/valid_sex_update.R --file $keep --sex_check $update_in --out $update_out
+    Rscript ${params.base_dir}/bin/valid_sex_update.R --file $keep --sex_check $update_in --out $update_out
     """
 }

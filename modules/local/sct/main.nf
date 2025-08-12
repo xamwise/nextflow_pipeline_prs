@@ -11,7 +11,7 @@ process sct {
 
     script:
     """
-    Rscript SCT.R \\
+    Rscript ${params.base_dir}/bin/SCT.R \\
     --file ref_dir \\
     --sumstats sst_file
      """

@@ -1,0 +1,31 @@
+# QC Pipeline Parameters
+# Usage: nextflow run workflows/qc_pipeline.nf -params-file params_qc_only.yaml
+
+# General Settings
+population: EUR
+base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
+
+# Quality Control Parameters
+qc:
+  maf: 0.01
+  mind: 0.01
+  geno: 0.01
+  hwe: 1e-6
+
+# Summary Statistics QC
+qc_sum:
+  info: 0.8
+  maf: 0.01
+
+# Relatedness
+relatedness:
+  cutoff: 0.125
+
+# Principal Components
+pcs:
+  pca: 6
+
+# Resources
+max_memory: 32.GB
+max_cpus: 8
+max_time: 12.h

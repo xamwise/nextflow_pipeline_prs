@@ -1,112 +1,192 @@
-<h1>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/nf-core-drugresponseeval_logo_dark.png">
-    <img alt="nf-core/drugresponseeval" src="docs/images/nf-core-drugresponseeval_logo_light.png">
-  </picture>
-</h1>
+Polygenic Risk Score Prediction Pipeline
+A state-of-the-art deep learning pipeline for predicting Polygenic Risk Scores (PRS) from genotype data using PyTorch and Nextflow.
+Features
 
-[![GitHub Actions CI Status](https://github.com/nf-core/drugresponseeval/actions/workflows/ci.yml/badge.svg)](https://github.com/nf-core/drugresponseeval/actions/workflows/ci.yml)
-[![GitHub Actions Linting Status](https://github.com/nf-core/drugresponseeval/actions/workflows/linting.yml/badge.svg)](https://github.com/nf-core/drugresponseeval/actions/workflows/linting.yml)[![AWS CI](https://img.shields.io/badge/CI%20tests-full%20size-FF9900?labelColor=000000&logo=Amazon%20AWS)](https://nf-co.re/drugresponseeval/results)[![Cite with Zenodo](http://img.shields.io/badge/DOI-10.5281/zenodo.XXXXXXX-1073c8?labelColor=000000)](https://doi.org/10.5281/zenodo.XXXXXXX)
+Deep Learning Models: Multiple architectures (MLP, CNN, Transformer, Attention-based)
+Data Processing: Efficient handling of large-scale PLINK format genotype data
+Memory Efficient: Lazy loading with HDF5 for datasets that don't fit in memory
+Hyperparameter Optimization: Automated tuning using Optuna
+K-fold Cross-validation: Robust model evaluation
+Data Augmentation: SNP dropout, noise injection, and region shuffling
+Comprehensive Logging: Integration with Weights & Biases
+Visualization: Interactive reports and performance metrics
 
-[![nf-test](https://img.shields.io/badge/unit_tests-nf--test-337ab7.svg)](https://www.nf-test.com)
+Directory Structure
+prs-pipeline/
+├── main.nf                    # Main Nextflow pipeline
+├── nextflow.config           # Nextflow configuration
+├── requirements.txt          # Python dependencies
+├── config/
+│   └── training_config.yaml # Training configuration
+├── bin/
+│   ├── plink_converter.py   # PLINK to HDF5 conversion
+│   ├── data_splitter.py     # Data splitting utilities
+│   ├── data_visualizer.py   # Visualization tools
+│   ├── genotype_dataset.py  # PyTorch dataset implementation
+│   ├── models.py            # DL model architectures
+│   ├── train_model.py       # Training script
+│   ├── hyperparameter_optimizer.py # Hyperparameter tuning
+│   └── evaluate_models.py   # Model evaluation
+├── data/
+│   └── genotypes.*         # Input PLINK files (.bed, .bim, .fam)
+└── results/
+    ├── processed_data/      # Converted HDF5 files
+    ├── data_splits/         # Train/val/test indices
+    ├── visualizations/      # Data visualizations
+    ├── hyperparameter_search/ # Optuna results
+    ├── models/              # Trained model checkpoints
+    └── evaluation/          # Final evaluation reports
+Installation
+Prerequisites
 
-[![Nextflow](https://img.shields.io/badge/nextflow%20DSL2-%E2%89%A524.04.2-23aa62.svg)](https://www.nextflow.io/)
-[![run with conda](http://img.shields.io/badge/run%20with-conda-3EB049?labelColor=000000&logo=anaconda)](https://docs.conda.io/en/latest/)
-[![run with docker](https://img.shields.io/badge/run%20with-docker-0db7ed?labelColor=000000&logo=docker)](https://www.docker.com/)
-[![run with singularity](https://img.shields.io/badge/run%20with-singularity-1d355c.svg?labelColor=000000)](https://sylabs.io/docs/)
-[![Launch on Seqera Platform](https://img.shields.io/badge/Launch%20%F0%9F%9A%80-Seqera%20Platform-%234256e7)](https://cloud.seqera.io/launch?pipeline=https://github.com/nf-core/drugresponseeval)
+Nextflow (version 21.04+)
+Python 3.8+
+CUDA 11.0+ (for GPU support, optional)
 
-[![Follow on Twitter](http://img.shields.io/badge/twitter-%40nf__core-1DA1F2?labelColor=000000&logo=twitter)](https://twitter.com/nf_core)
-[![Follow on Mastodon](https://img.shields.io/badge/mastodon-nf__core-6364ff?labelColor=FFFFFF&logo=mastodon)](https://mstdn.science/@nf_core)
-[![Watch on YouTube](http://img.shields.io/badge/youtube-nf--core-FF0000?labelColor=000000&logo=youtube)](https://www.youtube.com/c/nf-core)
+Python Dependencies
+Install required Python packages:
+bashpip install -r requirements.txt
+For GPU support with PyTorch:
+bashpip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+For CPU only:
+bashpip install torch torchvision torchaudio
+Weights & Biases Setup
+To use W&B logging (recommended):
+bashwandb login
+Usage
+1. Prepare your data
+Place your PLINK files in the data/ directory:
 
-# ![drevalpy_summary](assets/drevalpy-2-qr.svg)
+genotypes.bed - Binary genotype file
+genotypes.bim - SNP information
+genotypes.fam - Sample information
 
-## Introduction
+2. Configure the pipeline
+Edit config/training_config.yaml to customize:
 
-**DrEval** is a bioinformatics framework which includes a PyPI package (drevalpy) and a Nextflow
-pipeline (this repo). DrEval ensures that evaluations are statistically sound, biologically
-meaningful, and reproducible. DrEval simplifies the implementation of drug response prediction
-models, allowing researchers to focus on advancing their modeling innovations by automating
-standardized evaluation protocols and preprocessing workflows. With DrEval, hyperparameter
-tuning is fair and consistent. With its flexible model interface, DrEval supports any model type,
-ranging from statistical models to complex neural networks. By contributing your model to the
-DrEval catalog, you can increase your work's exposure, reusability, and transferability.
+Model architectures
+Training parameters
+Hyperparameter search space
+Data augmentation settings
 
-# ![Pipeline diagram showing the major steps of nf-core/drugresponseeval](assets/drugresponseeval_pipeline_simplified.png)
+3. Run the pipeline
+Basic run:
+bashnextflow run main.nf
+With custom parameters:
+bashnextflow run main.nf \
+    --input_plink data/my_genotypes \
+    --outdir results \
+    --max_epochs 100 \
+    --n_folds 5 \
+    --n_trials 30 \
+    --wandb_project my-prs-project
+Resume a previous run:
+bashnextflow run main.nf -resume
+Run with specific profile:
+bashnextflow run main.nf -profile gpu    # For GPU execution
+nextflow run main.nf -profile slurm  # For SLURM cluster
+4. Monitor training
+Track experiments in Weights & Biases dashboard at https://wandb.ai
+Pipeline Parameters
+ParameterDefaultDescription--input_plinkdata/genotypesPLINK file prefix--outdirresultsOutput directory--n_folds5Number of CV folds--test_size0.2Test set proportion--val_size0.1Validation set proportion--max_epochs100Maximum training epochs--batch_size32Batch size--n_trials20Optuna trials--wandb_projectprs-predictionW&B project name--wandb_entitynullW&B entity/team name
+Model Architectures
+1. MLP (Multi-Layer Perceptron)
 
-1. The response data is loaded
-2. All models are trained and evaluated in a cross-validation setting
-3. For each CV split, the best hyperparameters are determined using a grid search per model
-4. The model is trained on the full training set (train & validation) with the best
-   hyperparameters to predict the test set
-5. If randomization tests are enabled, the model is trained on the full training set with the best
-   hyperparameters to predict the randomized test set
-6. If robustness tests are enabled, the model is trained N times on the full training set with the
-   best hyperparameters
-7. Plots are created summarizing the results
+Fully connected layers with batch normalization
+Configurable hidden dimensions and dropout
+Suitable for smaller SNP sets
 
-For baseline models, no randomization or robustness tests are performed.
+2. CNN (1D Convolutional Neural Network)
 
-## Usage
+Treats SNPs as sequential data
+Multiple convolutional blocks with pooling
+Effective for capturing local SNP patterns
 
-> [!NOTE]
-> If you are new to Nextflow and nf-core, please refer to [this page](https://nf-co.re/docs/usage/installation) on how to set-up Nextflow. Make sure to [test your setup](https://nf-co.re/docs/usage/introduction#how-to-run-a-pipeline) with `-profile test` before running the workflow on actual data.
+3. Transformer
 
-Now, you can run the pipeline using:
+Self-attention mechanism for SNP interactions
+Positional encoding for SNP positions
+Best for capturing long-range dependencies
 
-```bash
-nextflow run nf-core/drugresponseeval \
-   -profile <docker/singularity/.../institute> \
-   --models <model1,model2,...> \
-   --baselines <baseline1,baseline2,...> \
-   --dataset_name <dataset_name> \
-   --path_data <path_data> \
-```
+4. Attention Model
 
-> [!WARNING]
-> Please provide pipeline parameters via the CLI or Nextflow `-params-file` option. Custom config files including those provided by the `-c` Nextflow option can be used to provide any configuration _**except for parameters**_; see [docs](https://nf-co.re/docs/usage/getting_started/configuration#custom-configuration-files).
+Multi-head self-attention
+Learns SNP importance weights
+Good interpretability
 
-For more details and further functionality, please refer to the [usage documentation](https://nf-co.re/drugresponseeval/usage) and the [parameter documentation](https://nf-co.re/drugresponseeval/parameters).
+Output Files
+Trained Models
 
-## Pipeline output
+results/models/fold_*/best_model_fold_*.pt - Best model checkpoints
+results/models/fold_*/training_history_fold_*.json - Training metrics
 
-To see the results of an example test run with a full size dataset refer to the [results](https://nf-co.re/drugresponseeval/results) tab on the nf-core website pipeline page.
-For more details about the output files and reports, please refer to the
-[output documentation](https://nf-co.re/drugresponseeval/output).
+Evaluation Reports
 
-## Credits
+results/evaluation/final_evaluation_report.html - Interactive HTML report
+results/evaluation/ensemble_predictions.csv - PRS predictions with risk categories
+results/evaluation/model_comparison.json - Performance metrics
 
-nf-core/drugresponseeval was originally written by Judith Bernett (TUM) and Pascal Iversen (FU
-Berlin).
+Visualizations
 
-We thank the following people for their extensive assistance in the development of this pipeline:
+results/visualizations/data_overview.png - Data quality plots
+results/visualizations/interactive_viz.html - Interactive visualizations
 
-## Contributions and Support
+Performance Metrics
+The pipeline evaluates models using PRS-specific metrics:
 
-Contributors to nf-core/drugresponseeval and the drevalpy PyPI package:
+R² Score: Variance explained
+Pearson/Spearman Correlation: Linear/rank correlation
+Calibration Metrics: Slope, intercept, ECE
+Risk Stratification: Odds ratios, risk ratios
+Decile Analysis: Performance across risk deciles
 
-- [Judith Bernett](https://github.com/JudithBernett) (TUM)
-- [Pascal Iversen](https://github.com/PascalIversen) (FU Berlin)
-- [Mario Picciani](https://github.com/picciama) (TUM)
+Running Individual Scripts
+You can also run pipeline components individually:
+Convert PLINK to HDF5
+pythonpython scripts/plink_converter.py \
+    --plink_prefix data/genotypes \
+    --output_h5 results/genotypes.h5 \
+    --output_pheno results/phenotypes.csv \
+    --stats_file results/stats.json
+Split data
+pythonpython scripts/data_splitter.py \
+    --genotype_file results/genotypes.h5 \
+    --phenotype_file results/phenotypes.csv \
+    --output_splits results/splits.json \
+    --output_indices results/indices.npz
+Train a model
+pythonpython scripts/train_model.py \
+    --genotype_file results/genotypes.h5 \
+    --phenotype_file results/phenotypes.csv \
+    --indices_file results/indices.npz \
+    --params_file config/training_config.yaml \
+    --fold 0 \
+    --output_model results/model.pt \
+    --output_metrics results/metrics.json \
+    --output_log results/log.csv
+Troubleshooting
+Memory Issues
 
-If you would like to contribute to this pipeline, please see the [contributing guidelines](.github/CONTRIBUTING.md).
+Reduce batch_size in configuration
+Increase cache_size in dataset settings
+Use data subset for testing
 
-For further information or help, don't hesitate to get in touch on the [Slack `#drugresponseeval` channel](https://nfcore.slack.com/channels/drugresponseeval) (you can join with [this invite](https://nf-co.re/join/slack)).
+GPU Issues
 
-## Citations
+Check CUDA: python -c "import torch; print(torch.cuda.is_available())"
+Run on CPU by setting device in config
 
-<!-- TODO nf-core: Add citation for pipeline after first release. Uncomment lines below and update Zenodo doi and badge at the top of this file. -->
-<!-- If you use nf-core/drugresponseeval for your analysis, please cite it using the following doi: [10.5281/zenodo.XXXXXX](https://doi.org/10.5281/zenodo.XXXXXX) -->
+Nextflow Issues
 
-<!-- TODO nf-core: Add bibliography of tools and data used in your pipeline -->
+Clear cache: nextflow clean -f
+Check logs: cat .nextflow.log
+Update Nextflow: nextflow self-update
 
-An extensive list of references for the tools used by the pipeline can be found in the [`CITATIONS.md`](CITATIONS.md) file.
-
-You can cite the `nf-core` publication as follows:
-
-> **The nf-core framework for community-curated bioinformatics pipelines.**
->
-> Philip Ewels, Alexander Peltzer, Sven Fillinger, Harshil Patel, Johannes Alneberg, Andreas Wilm, Maxime Ulysse Garcia, Paolo Di Tommaso & Sven Nahnsen.
->
-> _Nat Biotechnol._ 2020 Feb 13. doi: [10.1038/s41587-020-0439-x](https://dx.doi.org/10.1038/s41587-020-0439-x).
+Citation
+If you use this pipeline in your research, please cite:
+bibtex@software{prs_pipeline,
+  title={Deep Learning Pipeline for Polygenic Risk Score Prediction},
+  author={Max Schuran},
+  year={2024},
+  url={https://github.com/yourusername/prs-pipeline}
+}

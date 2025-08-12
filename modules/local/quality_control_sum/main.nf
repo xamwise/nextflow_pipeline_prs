@@ -15,7 +15,7 @@ process quality_control_sum{
 
     script:
     """
-    Rscript /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/quality_control_sum.R   --file $input \\
+    Rscript ${params.base_dir}/bin/quality_control_sum.R   --file $input \\
                                     --out $out\\
                                     --info $info \\
                                     --maf $maf

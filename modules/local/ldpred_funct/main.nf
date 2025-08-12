@@ -91,7 +91,7 @@ process ldpred_funct {
 
     script:
     """
-    python /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/ldpredfunct.py \\
+    python ${params.base_dir}/bin/ldpredfunct.py \\
         --gf $plinkfile \\
         --pf $phenotype \\
         --FUNCT_FILE $functfile \\

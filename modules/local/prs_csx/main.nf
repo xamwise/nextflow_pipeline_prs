@@ -106,14 +106,14 @@ process prs_csx {
 
     script:
     """
-    python /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/PRScsx.py \\
+    python ${params.base_dir}/bin/PRScsx.py \\
         --ref_dir $ref_dir \\
         --bim_prefix $bim_prefix \\
         --sst_file $sst_file \\
         --n_gwas $n_gwas \\
-        --pop $pop
+        --pop $pop \\
         --out_dir $out_dir \\
-        --out_name $out_name \\
+        --out_name $out_name 
       
     """
 

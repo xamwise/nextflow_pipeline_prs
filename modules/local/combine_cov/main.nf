@@ -14,6 +14,6 @@ process combine_cov{
 
     script:
     """
-    Rscript /Users/max/Desktop/PRS_Models/nextflow-eval-pipeline/bin/combine_cov.R --cov $cov --pcs $pcs --out $out
+    Rscript ${params.base_dir}/bin/combine_cov.R --cov $cov --pcs $pcs --out $out
     """
 }

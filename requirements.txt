@@ -1,4 +1,28 @@
-R:
-install.packages(c("devtools","RcppArmadillo", "data.table", "Matrix"), dependencies=TRUE)
-library(devtools)
-install_github("tshmak/lassosum")
+# Core dependencies
+torch>=2.0.0
+numpy>=1.21.0
+pandas>=1.3.0
+scikit-learn>=1.0.0
+scipy>=1.7.0
+
+# Deep Learning and Experiment Tracking
+wandb>=0.15.0
+optuna>=3.0.0
+
+# Data handling
+h5py>=3.0.0
+pandas-plink>=2.2.0  # Required for PLINK file reading
+
+# Visualization
+matplotlib>=3.5.0
+seaborn>=0.11.0
+plotly>=5.0.0
+
+# Utilities
+pyyaml>=6.0
+tqdm>=4.60.0
+joblib>=1.0.0
+
+# Optional for enhanced features
+pillow>=9.0.0       # For image handling in visualizations
+xlsxwriter>=3.0.0   # For Excel reports (optional)
