@@ -12,7 +12,7 @@ process baseline {
 
     script:
     """
-    Rscript PRS.R \\ 
+    Rscript ${params.base_dir}/bin/PRS.R \\ 
         --file $file \\ 
         --sup_data $sup_data
     """

@@ -38,7 +38,7 @@ bim <- fread(opt$file) %>%
     # And immediately change the alleles to upper cases
     .[,c("B.A1","B.A2"):=list(toupper(B.A1), toupper(B.A2))]
 # Read in summary statistic data (require data.table v1.12.0+)
-height <- fread(opt$sumstats) %>%
+phenotype <- fread(opt$sumstats) %>%
     # And immediately change the alleles to upper cases
     .[,c("A1","A2"):=list(toupper(A1), toupper(A2))]
 # Read in QCed SNPs
@@ -46,7 +46,7 @@ qc <- fread(opt$snplist, header=F)
 
 
 # Merge summary statistic with target
-info <- merge(bim, height, by=c("SNP", "CHR", "BP")) %>%
+info <- merge(bim, phenotype, by=c("SNP", "CHR", "BP")) %>%
     # And filter out QCed SNPs
     .[SNP %in% qc[,V1]]
 
@@ -93,3 +93,9 @@ mismatch <- bim[!(SNP %in% info.match |
                     SNP %in% recode.snps |
                     SNP %in% com.recode), SNP]
 write.table(mismatch, opt$mismatch, quote=F, row.names=F, col.names=F)
+
+# Remove duplicate SNPs (keeping the first occurrence)
+bim <- unique(bim, by="SNP")
+
+# Write the updated bim file
+fwrite(bim[,c("SNP", "B.A1")], opt$out, col.names=F, sep="\t")

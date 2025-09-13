@@ -1,0 +1,193 @@
+# Configuration for Sklearn Models Pipeline
+
+# Data preprocessing
+data:
+  input_format: 'plink'  # plink, csv, npz
+  handle_missing: 'impute'  # impute, drop, zero
+  imputation_strategy: 'mean'  # mean, median, most_frequent
+  scaling: true
+  scale_method: 'standard'  # standard, minmax, robust
+
+# Feature selection
+feature_selection:
+  enabled: true
+  n_features: 1000
+  methods:
+    - univariate  # f_regression
+    - lasso       # L1 regularization
+    - rf          # Random Forest importance
+    - mutual_info # Mutual information
+  univariate_percentile: 10
+  lasso_alpha: 0.01
+  combine_method: 'union'  # union, intersection, weighted
+
+# Data splitting
+splitting:
+  test_size: 0.2
+  val_size: 0.1
+  n_folds: 5
+  stratify: false  # For regression, usually false
+  shuffle: true
+  seed: 42
+
+# Models to train
+models:
+  linear:
+    enabled: true
+    name: 'Linear Regression'
+    optimize: false  # No hyperparameters to optimize
+  
+  ridge:
+    enabled: true
+    name: 'Ridge Regression'
+    optimize: true
+    n_trials: 50
+  
+  lasso:
+    enabled: true
+    name: 'Lasso Regression'
+    optimize: true
+    n_trials: 50
+  
+  elasticnet:
+    enabled: true
+    name: 'Elastic Net'
+    optimize: true
+    n_trials: 50
+  
+  rf:
+    enabled: true
+    name: 'Random Forest'
+    optimize: true
+    n_trials: 100
+    default_params:
+      n_estimators: 100
+      max_depth: 10
+      min_samples_split: 5
+  
+  gbm:
+    enabled: true
+    name: 'Gradient Boosting'
+    optimize: true
+    n_trials: 100
+    default_params:
+      n_estimators: 100
+      learning_rate: 0.1
+      max_depth: 5
+  
+  xgboost:
+    enabled: true
+    name: 'XGBoost'
+    optimize: true
+    n_trials: 100
+    default_params:
+      n_estimators: 100
+      learning_rate: 0.1
+      max_depth: 6
+  
+  lightgbm:
+    enabled: false  # Optional
+    name: 'LightGBM'
+    optimize: true
+    n_trials: 100
+  
+  catboost:
+    enabled: false  # Optional
+    name: 'CatBoost'
+    optimize: true
+    n_trials: 100
+  
+  svm:
+    enabled: true
+    name: 'Support Vector Machine'
+    optimize: true
+    n_trials: 50
+    default_params:
+      kernel: 'rbf'
+
+# Ensemble methods
+ensemble:
+  enabled: true
+  methods:
+    - voting     # Average predictions
+    - stacking   # Meta-learner
+    - blending   # Holdout validation
+  stacking_cv_folds: 3
+  meta_learner: 'ridge'  # Model for stacking
+
+# Training settings
+training:
+  n_jobs: -1  # Use all cores
+  random_state: 42
+  verbose: 1
+  early_stopping: false
+  patience: 10
+
+# Hyperparameter optimization
+hyperopt:
+  enabled: true
+  framework: 'optuna'  # optuna, hyperopt, gridsearch
+  n_trials_default: 50
+  timeout: 3600  # Max time in seconds per model
+  n_jobs: -1
+  pruning: true
+  sampler: 'tpe'  # tpe, random, cmaes
+
+# Evaluation metrics
+metrics:
+  primary: 'r2'  # Primary metric for model selection
+  calculate:
+    - mse
+    - rmse
+    - mae
+    - r2
+    - explained_variance
+    - pearson_r
+    - spearman_r
+    - max_error
+  
+  # For binary classification if needed
+  classification:
+    - accuracy
+    - precision
+    - recall
+    - f1
+    - roc_auc
+    - pr_auc
+
+# Interpretability
+interpretability:
+  shap_analysis: true
+  shap_samples: 100  # Number of samples for SHAP
+  feature_importance: true
+  partial_dependence: true
+  pdp_features: 10  # Top N features for PDP
+
+# Visualization
+visualization:
+  enabled: true
+  formats: ['png', 'pdf', 'html']
+  plots:
+    - learning_curves
+    - validation_curves
+    - feature_importance
+    - residual_plots
+    - prediction_scatter
+    - shap_summary
+    - confusion_matrix  # For classification
+
+# Logging
+logging:
+  level: 'INFO'
+  mlflow: false
+  wandb: false
+  tensorboard: false
+  csv_log: true
+
+# Output settings
+output:
+  save_models: true
+  save_predictions: true
+  save_preprocessor: true
+  model_format: 'pickle'  # pickle, joblib
+  compression: false

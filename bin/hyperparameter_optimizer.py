@@ -104,7 +104,16 @@ class HyperparameterOptimizer:
                 
                 optimizer.zero_grad()
                 predictions = model(genotypes)
-                loss = criterion(predictions, phenotypes)
+                
+                # Check if Bayesian model and use ELBO loss
+                if params['model']['model_type'] == 'bayesian':
+                    nll = criterion(predictions, phenotypes)
+                    kl_div = model.get_kl_divergence() / len(train_loader)
+                    kl_weight = params['model'].get('kl_weight', 0.01)
+                    loss = nll + kl_weight * kl_div
+                else:
+                    loss = criterion(predictions, phenotypes)
+                
                 loss.backward()
                 
                 # Gradient clipping
@@ -163,7 +172,7 @@ class HyperparameterOptimizer:
         params = {}
         
         # Model architecture parameters
-        model_type = trial.suggest_categorical('model_type', ['mlp', 'cnn', 'transformer', 'attention'])
+        model_type = trial.suggest_categorical('model_type', ['mlp', 'cnn', 'transformer', 'attention', 'bayesian'])
         
         if model_type == 'mlp':
             params['model'] = {
@@ -204,13 +213,28 @@ class HyperparameterOptimizer:
                 'dropout_rate': trial.suggest_float('transformer_dropout', 0.0, 0.3)
             }
         
-        else:  # attention
+        elif model_type == 'attention':
             params['model'] = {
                 'model_type': 'attention',
                 'hidden_dim': trial.suggest_int('attention_hidden', 64, 512, step=64),
                 'attention_dim': trial.suggest_int('attention_dim', 32, 256, step=32),
                 'n_attention_heads': trial.suggest_int('attention_heads', 2, 8),
                 'dropout_rate': trial.suggest_float('attention_dropout', 0.1, 0.5)
+            }
+        
+        else:  # bayesian
+            params['model'] = {
+                'model_type': 'bayesian',
+                'hidden_dims': [
+                    trial.suggest_int('bnn_hidden_1', 128, 1024, step=128),
+                    trial.suggest_int('bnn_hidden_2', 64, 512, step=64),
+                    trial.suggest_int('bnn_hidden_3', 32, 256, step=32)
+                ],
+                'prior_var': trial.suggest_float('bnn_prior_var', 0.1, 10.0, log=True),
+                'dropout_rate': trial.suggest_float('bnn_dropout', 0.0, 0.3),
+                'activation': trial.suggest_categorical('bnn_activation', ['relu', 'elu']),
+                'n_samples': trial.suggest_int('bnn_n_samples', 5, 20),
+                'kl_weight': trial.suggest_float('bnn_kl_weight', 0.001, 0.1, log=True)
             }
         
         # Optimizer parameters
@@ -341,13 +365,22 @@ class HyperparameterOptimizer:
                 'd_ff': params['transformer_d_ff'],
                 'dropout_rate': params['transformer_dropout']
             })
-        else:  # attention
+        elif model_type == 'attention':
             config['model'].update({
                 'hidden_dim': params['attention_hidden'],
                 'attention_dim': params['attention_dim'],
                 'n_attention_heads': params['attention_heads'],
                 'dropout_rate': params['attention_dropout']
             })
+        else:  # bayesian
+            config['model'].update({
+                'hidden_dims': [params['bnn_hidden_1'], params['bnn_hidden_2'], params['bnn_hidden_3']],
+                'prior_var': params['bnn_prior_var'],
+                'dropout_rate': params['bnn_dropout'],
+                'activation': params['bnn_activation'],
+                'n_samples': params['bnn_n_samples']
+            })
+            config['kl_weight'] = params['bnn_kl_weight']
         
         # Optimizer configuration
         config['optimizer'] = {

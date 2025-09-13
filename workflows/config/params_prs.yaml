@@ -7,7 +7,7 @@ base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
 
 # Use existing QC data
 use_existing_qc: true
-qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC.*
+qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC
 pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.eigenvec
 sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.QC.gz
 

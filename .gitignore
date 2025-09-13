@@ -9,3 +9,6 @@ testing*
 null/
 .idea/
 out/
+wandb/
+.vscode/
+.devcontainer/

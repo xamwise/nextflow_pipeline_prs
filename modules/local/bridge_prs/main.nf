@@ -10,7 +10,7 @@ process bridge_prs {
 
     script:
     """
-    bridgePRS prs-single run \\
+    ${params.base_dir}/bin/bridgePRS prs-single run \\
         -o out_single/ \\
         --config_file data/eur_eas.config \\
         --phenotype y \\

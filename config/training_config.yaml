@@ -2,7 +2,7 @@
 
 # Model configuration for PRS prediction
 model:
-  model_type: "mlp"  # Options: mlp, cnn, transformer, attention
+  model_type: "mlp"  # Options: mlp, cnn, transformer, attention, bayesian/bnn
   
   # MLP specific parameters (recommended for PRS)
   hidden_dims: [2048, 1024, 512, 256]  # Deeper network for complex genetic patterns
@@ -26,6 +26,12 @@ model:
   hidden_dim: 256
   attention_dim: 128
   n_attention_heads: 4
+  
+  # Bayesian Neural Network parameters (if model_type: bayesian/bnn)
+  # hidden_dims: [512, 256, 128]  # Smaller network due to uncertainty modeling
+  prior_var: 1.0  # Prior variance for weight distributions
+  n_samples: 10  # Number of forward passes for uncertainty estimation
+  kl_weight: 0.01  # Weight for KL divergence in ELBO loss
 
 # Optimizer configuration
 optimizer:
@@ -67,7 +73,7 @@ augmentation_params:
   shuffle_regions: 10
 
 # Logging with Weights & Biases
-use_wandb: false  # Enable W&B logging
+use_wandb: true  # Enable W&B logging
 wandb_project: "prs-prediction"
 wandb_entity: null  # Set to your W&B username/team
 log_interval: 10
