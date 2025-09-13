@@ -1,6 +1,7 @@
 .nextflow*
 work/
 data/
+wandb/
 results/
 .DS_Store
 testing/
@@ -9,6 +10,5 @@ testing*
 null/
 .idea/
 out/
-wandb/
-.vscode/
-.devcontainer/
+.vscode*
+.devcontainer*
