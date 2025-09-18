@@ -187,6 +187,6 @@ If you use this pipeline in your research, please cite:
 bibtex@software{prs_pipeline,
   title={Deep Learning Pipeline for Polygenic Risk Score Prediction},
   author={Max Schuran},
-  year={2024},
+  year={2025},
   url={https://github.com/yourusername/prs-pipeline}
 }

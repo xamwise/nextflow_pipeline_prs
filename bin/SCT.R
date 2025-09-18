@@ -1,311 +1,509 @@
-# Load packages bigsnpr and bigstatsr
-library(bigsnpr)
-
 #!/usr/bin/env Rscript
-library("optparse")
- 
+
+library(bigsnpr)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(optparse)
+
 option_list = list(
-  make_option(c("-f", "--file"), type="character", default=NULL, 
-              help="dataset file name", metavar="character"),
-  make_option(c("-s", "--sumstats"), type="character", default=NULL, 
-              help="summary statistics file name", metavar="character")  
+  make_option(c("-b", "--bed"), type="character", default=NULL, 
+              help="bedfile name without extension", metavar="character"),
+  make_option(c("-f", "--sum_stats"), type="character", default=NULL, 
+              help="summary statistics file name", metavar="character"),
+  make_option(c("-p", "--pheno"), type="character", default=NULL, 
+              help="phenotype file name (optional, uses fam file if not provided)", metavar="character"),
+  make_option(c("--trait_type"), type="character", default="auto",
+              help="trait type: 'binary', 'quantitative', or 'auto' [default: auto]", metavar="character"),
+  make_option(c("-t", "--train_prop"), type="numeric", default=0.8,
+              help="proportion of samples for training [default: 0.8]", metavar="numeric"),
+  make_option(c("-n", "--n_train"), type="integer", default=NULL,
+              help="number of training samples (overrides train_prop)", metavar="integer"),
+  make_option(c("-k", "--n_folds"), type="integer", default=10,
+              help="number of folds for cross-validation [default: 10]", metavar="integer"),
+  make_option(c("-c", "--ncores"), type="integer", default=NULL,
+              help="number of cores to use [default: all available]", metavar="integer"),
+  make_option(c("-o", "--out"), type="character", default=NULL,
+              help="output prefix", metavar="character")
 )
- 
+
 opt_parser = OptionParser(option_list=option_list)
 opt = parse_args(opt_parser)
 
-if (is.null(opt$file)){
+if (is.null(opt$bed) || is.null(opt$sum_stats) || is.null(opt$out)){
   print_help(opt_parser)
-  stop("At least one argument must be supplied (input file).n", call.=FALSE)
+  stop("Required arguments: --bed, --sum_stats, and --out", call.=FALSE)
 }
 
-## Loading required package: bigstatsr
-## Warning: package 'bigstatsr' was built under R version 4.2.3
-# Read from bed/bim/fam, it generates .bk and .rds files.
-
-if (!file.exists(paste(opt$file, ".rds", sep = ""))) {
-  # Read from bed/bim/fam
-  snp_readBed(paste(opt$file, ".bed", sep = ""))
-  obj.bigSNP <- snp_attach(paste(opt$file, ".rds", sep = ""))
-
+# Set number of cores
+if (is.null(opt$ncores)) {
+  NCORES <- nb_cores()
 } else {
-  # Read from .rds file
-  obj.bigSNP <- snp_attach(paste(opt$file, ".rds", sep = ""))
+  NCORES <- opt$ncores
 }
+cat("Using", NCORES, "cores\n")
 
-# snp_readBed(paste(opt$file, ".bed", sep = ""))
-
-
-
-# See how the file looks like
-str(obj.bigSNP, max.level = 2, strict.width = "cut")
-
-## List of 3
-##  $ genotypes:Reference class 'FBM.code256' [package "bigstatsr"] with 16 ..
-##   ..and 26 methods, of which 12 are  possibly relevant:
-##   ..  add_columns, as.FBM, bm, bm.desc, check_dimensions,
-##   ..  check_write_permissions, copy#envRefClass, initialize,
-##   ..  initialize#FBM, save, show#envRefClass, show#FBM
-##  $ fam      :'data.frame':   559 obs. of  6 variables:
-##   ..$ family.ID  : chr [1:559] "EUR_GBR" "EUR_GBR" "EUR_GBR" "EUR_GBR" ...
-##   ..$ sample.ID  : chr [1:559] "HG00096" "HG00097" "HG00099" "HG00100" ...
-##   ..$ paternal.ID: int [1:559] 0 0 0 0 0 0 0 0 0 0 ...
-##   ..$ maternal.ID: int [1:559] 0 0 0 0 0 0 0 0 0 0 ...
-##   ..$ sex        : int [1:559] 1 2 2 2 1 2 1 2 2 1 ...
-##   ..$ affection  : int [1:559] 1 2 1 1 1 1 2 1 2 1 ...
-##  $ map      :'data.frame':   130816 obs. of  6 variables:
-##   ..$ chromosome  : int [1:130816] 2 2 2 2 2 2 2 2 2 2 ...
-##   ..$ marker.ID   : chr [1:130816] "rs13400442" "rs7594567" "rs7597758" "..
-##   ..$ genetic.dist: int [1:130816] 0 0 0 0 0 0 0 0 0 0 ...
-##   ..$ physical.pos: int [1:130816] 18506 21833 22398 28228 32003 32005 36..
-##   ..$ allele1     : chr [1:130816] "C" "G" "T" "A" ...
-##   ..$ allele2     : chr [1:130816] "T" "C" "C" "G" ...
-##  - attr(*, "class")= chr "bigSNP"
+# Read or create bigSNP object
+rds_file <- paste0(opt$bed, ".rds")
+if (!file.exists(rds_file)) {
+  cat("Converting BED file to bigSNP format...\n")
+  snp_readBed(paste0(opt$bed, ".bed"))
+}
+obj.bigSNP <- snp_attach(rds_file)
 
 # Get aliases for useful slots
 G   <- obj.bigSNP$genotypes
 CHR <- obj.bigSNP$map$chromosome
 POS <- obj.bigSNP$map$physical.pos
-y   <- obj.bigSNP$fam$affection - 1
-NCORES <- nb_cores()
 
-# Check some counts for the 10 first variants
-big_counts(G, ind.col = 1:10)
+# Get phenotype
+pheno_col <- "phenotype"  # Default name
+if (!is.null(opt$pheno)) {
+  cat("Reading phenotype file...\n")
+  pheno_data <- fread(opt$pheno)
+  # Merge with fam file
+  fam_data <- obj.bigSNP$fam
+  setDT(fam_data)
+  
+  # Handle column names
+  if ("family.ID" %in% names(fam_data) && "sample.ID" %in% names(fam_data)) {
+    setnames(fam_data, c("family.ID", "sample.ID"), c("FID", "IID"))
+  } else if (!("FID" %in% names(fam_data) && "IID" %in% names(fam_data))) {
+    old_names <- names(fam_data)[1:2]
+    setnames(fam_data, old_names, c("FID", "IID"))
+  }
+  
+  fam_data <- merge(fam_data, pheno_data, by = c("FID", "IID"), all.x = TRUE)
+  # Assume phenotype is in the third column of pheno_data
+  pheno_col <- names(pheno_data)[3]
+  y <- fam_data[[pheno_col]]
+  
+} else {
+  # Use affection status from fam file
+  cat("Using affection status from fam file\n")
+  y <- obj.bigSNP$fam$affection
+  pheno_col <- "affection"
+}
 
-##      [,1] [,2] [,3] [,4] [,5] [,6] [,7] [,8] [,9] [,10]
-## 0     504  468  421  483  476  420  380  383  478   389
-## 1      48   69  107   66   73  124  136  135   70   133
-## 2       7   22   31   10   10   15   43   41   11    37
-## <NA>    0    0    0    0    0    0    0    0    0     0
+# Remove missing phenotypes
+non_missing <- !is.na(y)
+if (sum(non_missing) < nrow(G)) {
+  cat("Removing", sum(!non_missing), "samples with missing phenotypes\n")
+  y <- y[non_missing]
+  G_indices <- which(non_missing)
+} else {
+  G_indices <- 1:nrow(G)
+}
 
-# Read external summary statistics
-sumstats <- bigreadr::fread2(opt$sumstats, 
-                             select = c(1:6, 10))
-str(sumstats)
-## 'data.frame':    130816 obs. of  7 variables:
-##  $ chromosome  : int  2 2 2 2 2 2 2 2 2 2 ...
-##  $ marker.ID   : chr  "rs13400442" "rs7594567" "rs7597758" "rs13383216" ...
-##  $ physical.pos: int  18506 21833 22398 28228 32003 32005 36787 55237 56916 61687 ...
-##  $ allele1     : chr  "C" "G" "T" "A" ...
-##  $ allele2     : chr  "T" "C" "C" "G" ...
-##  $ beta        : num  -0.073 0.0439 -0.3325 -0.5445 -0.4881 ...
-##  $ p           : num  0.7925 0.8593 0.0846 0.028 0.0439 ...
+# Determine trait type
+unique_vals <- unique(y[!is.na(y)])
+n_unique <- length(unique_vals)
 
-# We split genotype data using part of the data to learn parameters of stacking 
-# and another part of the data to evaluate statistical properties of polygenic risk score
-# such as AUC. Here we consider that there are 400 individuals in the training set.
+if (opt$trait_type == "auto") {
+  if (all(unique_vals %in% c(0, 1))) {
+    trait_type <- "binary"
+    cat("Detected binary trait (0/1 coding)\n")
+  } else if (all(unique_vals %in% c(1, 2))) {
+    trait_type <- "binary"
+    cat("Detected binary trait (1/2 coding), converting to 0/1\n")
+    y <- y - 1
+  } else if (n_unique == 2) {
+    trait_type <- "binary"
+    cat("Detected binary trait with values:", paste(unique_vals, collapse=", "), "\n")
+    # Convert to 0/1
+    y <- as.numeric(factor(y)) - 1
+  } else if (n_unique > 10) {
+    trait_type <- "quantitative"
+    cat("Detected quantitative trait (", n_unique, "unique values)\n")
+  } else {
+    # Could be ordinal or quantitative with few values
+    cat("Ambiguous trait type (", n_unique, "unique values). Treating as quantitative.\n")
+    trait_type <- "quantitative"
+  }
+} else {
+  trait_type <- opt$trait_type
+  cat("Using specified trait type:", trait_type, "\n")
+  
+  if (trait_type == "binary") {
+    if (!all(unique_vals %in% c(0, 1))) {
+      if (all(unique_vals %in% c(1, 2))) {
+        cat("Converting 1/2 coding to 0/1\n")
+        y <- y - 1
+      } else if (n_unique == 2) {
+        cat("Converting to 0/1 coding\n")
+        y <- as.numeric(factor(y)) - 1
+      } else {
+        stop("Binary trait specified but phenotype has ", n_unique, " unique values")
+      }
+    }
+  }
+}
 
+# Check variance for quantitative traits
+if (trait_type == "quantitative") {
+  y_var <- var(y, na.rm = TRUE)
+  if (y_var < 1e-10) {
+    stop("Phenotype has essentially no variance. Cannot perform analysis.")
+  }
+  cat("Phenotype variance:", y_var, "\n")
+  cat("Phenotype range:", min(y, na.rm = TRUE), "to", max(y, na.rm = TRUE), "\n")
+}
+
+# Read summary statistics
+cat("Reading summary statistics...\n")
+sumstats <- bigreadr::fread2(opt$sum_stats)
+
+# Standardize column names
+col_names <- tolower(names(sumstats))
+names(sumstats) <- col_names
+
+# Try to identify and rename columns
+if ("chromosome" %in% col_names) names(sumstats)[which(col_names == "chromosome")] <- "chr"
+if ("rsid" %in% col_names) names(sumstats)[which(col_names == "rsid")] <- "marker.id"
+if ("marker.id" %in% col_names) names(sumstats)[which(col_names == "marker.id")] <- "rsid"
+if ("bp" %in% col_names) names(sumstats)[which(col_names == "bp")] <- "pos"
+if ("position" %in% col_names) names(sumstats)[which(col_names == "position")] <- "pos"
+if ("physical.pos" %in% col_names) names(sumstats)[which(col_names == "physical.pos")] <- "pos"
+if ("allele1" %in% col_names) names(sumstats)[which(col_names == "allele1")] <- "a0"
+if ("allele2" %in% col_names) names(sumstats)[which(col_names == "allele2")] <- "a1"
+if ("a2" %in% col_names) names(sumstats)[which(col_names == "a2")] <- "a0"
+if ("effect" %in% col_names) names(sumstats)[which(col_names == "effect")] <- "beta"
+if ("or" %in% col_names && !"beta" %in% col_names) {
+  sumstats$beta <- log(sumstats$or)
+}
+if ("pvalue" %in% col_names) names(sumstats)[which(col_names == "pvalue")] <- "p"
+if ("p.value" %in% col_names) names(sumstats)[which(col_names == "p.value")] <- "p"
+
+# Check required columns
+required_cols <- c("chr", "pos", "a0", "a1", "beta", "p")
+missing_cols <- setdiff(required_cols, names(sumstats))
+if (length(missing_cols) > 0) {
+  stop("Missing required columns in summary statistics: ", paste(missing_cols, collapse = ", "))
+}
+
+# Split data into training and test sets
 set.seed(1)
-ind.train <- sample(nrow(G), 400)
-ind.test <- setdiff(rows_along(G), ind.train)
+n_samples <- length(G_indices)
 
-# Matching variants between genotype data and summary statistics
-# To match variants contained in genotype data and summary statistics, 
-# the variables "chr" (chromosome number), "pos" (genetic position),
-# "a0" (reference allele) and "a1" (derived allele) should be available in 
-# the summary statistics and in the genotype data. 
-# These 4 variables are used to match variants between the two data frames.
+if (!is.null(opt$n_train)) {
+  n_train <- min(opt$n_train, n_samples - 10)  # Ensure we have at least 10 test samples
+} else {
+  n_train <- floor(opt$train_prop * n_samples)
+}
 
-names(sumstats) <- c("chr", "rsid", "pos", "a0", "a1", "beta", "p")
-map <- obj.bigSNP$map[,-(2:3)]
+# Create indices relative to the non-missing samples
+train_idx <- sample(n_samples, n_train)
+test_idx <- setdiff(1:n_samples, train_idx)
+
+# Map back to original G indices
+ind.train <- G_indices[train_idx]
+ind.test <- G_indices[test_idx]
+
+cat("Training samples:", length(ind.train), "\n")
+cat("Test samples:", length(ind.test), "\n")
+
+# Check variance in training set
+y_train <- y[train_idx]
+y_train_var <- var(y_train, na.rm = TRUE)
+y_train_unique <- length(unique(y_train[!is.na(y_train)]))
+
+cat("Training set: ", y_train_unique, "unique values, variance =", y_train_var, "\n")
+
+if (y_train_unique < 2) {
+  stop("Training set has only one unique value. Cannot train model. Check your phenotype data.")
+}
+
+if (trait_type == "quantitative" && y_train_var < 1e-10) {
+  stop("Training set phenotype has essentially no variance. Cannot train model.")
+}
+
+# Match variants between genotype data and summary statistics
+cat("Matching variants...\n")
+map <- obj.bigSNP$map[, c(1, 4, 5, 6)]
 names(map) <- c("chr", "pos", "a0", "a1")
-info_snp <- snp_match(sumstats, map)
 
-## 130,816 variants to be matched.
-## 18,932 ambiguous SNPs have been removed.
-## Some duplicates were removed.
-## 111,866 variants have been matched; 0 were flipped and 0 were reversed.
+# Try matching with strand flipping first
+info_snp <- snp_match(sumstats[, required_cols], map)
 
-# If no or few variants are actually flipped, you might want to disable 
-# the strand flipping option. Here, these are simulated data so all variants 
-# use the same strand and the same reference.
+# If few variants match, try without strand flipping
+if (nrow(info_snp) < nrow(sumstats) * 0.5) {
+  cat("Few variants matched with strand flipping, trying without...\n")
+  info_snp <- snp_match(sumstats[, required_cols], map, strand_flip = FALSE)
+}
 
-info_snp <- snp_match(sumstats, map, strand_flip = FALSE)
+cat("Matched", nrow(info_snp), "variants out of", nrow(sumstats), "\n")
 
-## 130,816 variants to be matched.
-## Some duplicates were removed.
-## 130,792 variants have been matched; 0 were flipped and 0 were reversed.
-# beta and lpval need to have the same length as ncol(G), CHR and POS
-# -> one solution is to use missing values and use the 'exclude' parameter
-
+# Prepare beta and p-values for all SNPs
 beta <- rep(NA, ncol(G))
 beta[info_snp$`_NUM_ID_`] <- info_snp$beta
 lpval <- rep(NA, ncol(G))
 lpval[info_snp$`_NUM_ID_`] <- -log10(info_snp$p)
 
-# Computing C+T scores for a grid of parameters and chromosomes
-#
-# CLUMPING
-# First, the function snp_grid_clumping() computes sets of variants resulting
-# from the clumping procedure that is applied repeatedly with different values
-# of hyper-parameters (threshold of correlation for clumping, window size, 
-# and possibly imputation accuracy threshold). By default, the function uses 28
-# (7 thresholds of correlation x 4 window sizes) different sets of hyper-parameters 
-# for generating sets of variants resulting from clumping.
-
-# The clumping step might take some time to complete
-all_keep <- snp_grid_clumping(G, CHR, POS, ind.row = ind.train,
-                              lpS = lpval, exclude = which(is.na(lpval)),
+# Perform clumping
+cat("Performing clumping...\n")
+all_keep <- snp_grid_clumping(G, CHR, POS, 
+                              ind.row = ind.train,
+                              lpS = lpval, 
+                              exclude = which(is.na(lpval)),
                               ncores = NCORES)
-attr(all_keep, "grid")
 
-##     size thr.r2 grp.num thr.imp
-## 1   5000   0.01       1       1
-## 2  10000   0.01       1       1
-## 3  20000   0.01       1       1
-## 4  50000   0.01       1       1
-## 5   1000   0.05       1       1
-## 6   2000   0.05       1       1
-## 7   4000   0.05       1       1
-## 8  10000   0.05       1       1
-## 9    500   0.10       1       1
-## 10  1000   0.10       1       1
-## 11  2000   0.10       1       1
-## 12  5000   0.10       1       1
-## 13   250   0.20       1       1
-## 14   500   0.20       1       1
-## 15  1000   0.20       1       1
-## 16  2500   0.20       1       1
-## 17   100   0.50       1       1
-## 18   200   0.50       1       1
-## 19   400   0.50       1       1
-## 20  1000   0.50       1       1
-## 21    62   0.80       1       1
-## 22   125   0.80       1       1
-## 23   250   0.80       1       1
-## 24   625   0.80       1       1
-## 25    52   0.95       1       1
-## 26   105   0.95       1       1
-## 27   210   0.95       1       1
-## 28   526   0.95       1       1
+cat("Clumping completed with", nrow(attr(all_keep, "grid")), "parameter sets\n")
 
-# THRESHOLDING
-# Then, for each chromosome, for each set of variants resulting from clumping
-# and for each p-value threshold, the function snp_grid_PRS() computes C+T scores.
+# Calculate PRS for different thresholds
+cat("Computing PRS for multiple thresholds...\n")
+# Create backing file in current directory for Nextflow compatibility
+multi_PRS <- snp_grid_PRS(G, all_keep, beta, lpval, 
+                          ind.row = ind.train,
+                          backingfile = "./multi_PRS", 
+                          n_thr_lpS = 50, 
+                          ncores = NCORES)
 
-multi_PRS <- snp_grid_PRS(G, all_keep, beta, lpval, ind.row = ind.train,
-                          backingfile = paste(opt$file, "/scores", sep = ""), 
-                          n_thr_lpS = 50, ncores = NCORES)
-dim(multi_PRS)  
+cat("Computed", ncol(multi_PRS), "PRS for", nrow(multi_PRS), "individuals\n")
 
-## 4200 C+T scores for 400 individuals
-## [1]  400 4200
+# Perform stacking
+cat("Performing stacking...\n")
+cat("Trait type for stacking:", trait_type, "\n")
 
-# Stacking C+T predictions
-# A penalized regression is finally used to learn an optimal linear combination of C+T scores.
+# For quantitative traits, we need to standardize
+if (trait_type == "quantitative") {
+  y_mean <- mean(y_train, na.rm = TRUE)
+  y_sd <- sd(y_train, na.rm = TRUE)
+  cat("Standardizing quantitative phenotype (mean =", y_mean, ", sd =", y_sd, ")\n")
+  y_train_std <- (y_train - y_mean) / y_sd
+} else {
+  y_train_std <- y_train
+}
 
-final_mod <- snp_grid_stacking(multi_PRS, y[ind.train], ncores = NCORES, K = 4)
-summary(final_mod$mod)
+# Perform stacking with appropriate parameters
+tryCatch({
+  final_mod <- snp_grid_stacking(
+    multi_PRS, 
+    y_train_std, 
+    ncores = NCORES, 
+    K = min(opt$n_folds, length(unique(y_train_std)) - 1),  # Ensure K is valid
+    family = if(trait_type == "binary") "binomial" else "gaussian"
+  )
+  
+  # Get the best model
+  best_mod_idx <- which.min(final_mod$mod$validation_loss)
+  cat("Best model: alpha =", final_mod$mod$alpha[best_mod_idx], "\n")
+  cat("Validation loss:", final_mod$mod$validation_loss[best_mod_idx], "\n")
+  
+}, error = function(e) {
+  cat("Error in stacking:", e$message, "\n")
+  cat("Trying with reduced parameters...\n")
+  
+  # Try with fewer folds
+  final_mod <<- snp_grid_stacking(
+    multi_PRS, 
+    y_train_std, 
+    ncores = NCORES, 
+    K = 2,  # Minimum folds
+    family = if(trait_type == "binary") "binomial" else "gaussian"
+  )
+  
+  best_mod_idx <<- which.min(final_mod$mod$validation_loss)
+  cat("Best model with K=2: alpha =", final_mod$mod$alpha[best_mod_idx], "\n")
+})
 
-## # A tibble: 3 × 9
-##    alpha power_adaptive power_scale validation_loss intercept beta   nb_var
-##    <dbl>          <dbl>       <dbl>           <dbl>     <dbl> <list>  <int>
-## 1 0.0001              0           1           0.565     -1.05 <dbl>    4028
-## 2 0.01                0           1           0.567     -1.06 <dbl>     808
-## 3 1                   0           1           0.569     -1.09 <dbl>     136
-## # ℹ 2 more variables: message <list>, all_conv <lgl>
-
-# Here, I use K = 4 folds because this example data is very small; 
-# the default is to use 10. For options for fitting penalized regressions,
-# see this vignette.
-
-# From stacking C+T scores, we can derive a unique vector of weights 
-# and compare effects resulting from stacking to the initial 
-# regression coefficients provided as summary statistics.
-
+# Extract new beta values
 new_beta <- final_mod$beta.G
-ind <- which(new_beta != 0)
+ind_keep <- which(new_beta != 0)
 
-library(ggplot2)
-## Warning: package 'ggplot2' was built under R version 4.2.3
+cat("Number of non-zero SNPs:", length(ind_keep), "\n")
 
-ggplot(data.frame(y = new_beta, x = beta)[ind, ]) +
-  geom_abline(slope = 1, intercept = 0, color = "red") +
-  geom_abline(slope = 0, intercept = 0, color = "blue") +
-  geom_point(aes(x, y), size = 0.6) +
-  theme_bigstatsr() +
-  labs(x = "Effect sizes from GWAS", y = "Non-zero effect sizes from SCT")
+# Calculate predictions on test set
+y_test <- y[test_idx]
+pred_test <- final_mod$intercept + 
+  big_prodVec(G, new_beta[ind_keep], ind.row = ind.test, ind.col = ind_keep)
 
+# Calculate appropriate metric based on trait type
+if (trait_type == "binary") {
+  # Calculate AUC for binary trait
+  auc_result <- AUCBoot(pred_test, y_test)
+  cat("Test AUC:", round(auc_result[1], 4), "\n")
+  
+  # Save AUC results
+  auc_df <- data.frame(
+    Mean = auc_result[1],
+    CI_2.5 = auc_result[2],
+    CI_97.5 = auc_result[3],
+    SD = auc_result[4]
+  )
+  fwrite(auc_df, paste0(opt$out, "_AUC.txt"), sep = "\t")
+} else {
+  # For quantitative traits, calculate correlation and R-squared
+  # Unstandardize predictions if we standardized during training
+  if (exists("y_mean") && exists("y_sd")) {
+    pred_test_orig <- pred_test * y_sd + y_mean
+  } else {
+    pred_test_orig <- pred_test
+  }
+  
+  cor_test <- cor(pred_test_orig, y_test, use = "complete.obs")
+  r2_test <- cor_test^2
+  rmse_test <- sqrt(mean((pred_test_orig - y_test)^2, na.rm = TRUE))
+  
+  cat("Test correlation:", round(cor_test, 4), "\n")
+  cat("Test R-squared:", round(r2_test, 4), "\n")
+  cat("Test RMSE:", round(rmse_test, 4), "\n")
+  
+  # Save quantitative metrics
+  quant_metrics <- data.frame(
+    Correlation = cor_test,
+    R_squared = r2_test,
+    RMSE = rmse_test,
+    N_test = sum(!is.na(y_test))
+  )
+  fwrite(quant_metrics, paste0(opt$out, "_metrics.txt"), sep = "\t")
+}
 
-# We can use this vector of variant weights to compute polygenic risk scores
-# on the test set and evaluate the Area Under the Curve (AUC).
+# Calculate PRS for all individuals
+cat("Calculating PRS for all individuals...\n")
+pred_all <- final_mod$intercept + 
+  big_prodVec(G, new_beta[ind_keep], ind.col = ind_keep)
 
-pred <- final_mod$intercept + 
-  big_prodVec(G, new_beta[ind], ind.row = ind.test, ind.col = ind)
-AUCBoot(pred, y[ind.test])
+# For quantitative traits, unstandardize if needed
+if (trait_type == "quantitative" && exists("y_mean") && exists("y_sd")) {
+  pred_all <- pred_all * y_sd + y_mean
+}
 
-output_pred <- capture.output(AUCBoot(pred, y[ind.test]))
-write(output_pred, file = paste(opt$file, "_auc_sct.txt", sep = ""))
+# Save PRS
+prs_output <- data.table(
+  FID = obj.bigSNP$fam$family.ID,
+  IID = obj.bigSNP$fam$sample.ID,
+  PRS = pred_all,
+  is_train = 1:nrow(G) %in% ind.train
+)
+fwrite(prs_output, paste0(opt$out, "_PRS.csv"))
+cat("PRS saved to:", paste0(opt$out, "_PRS.csv"), "\n")
 
+# Save beta coefficients
+# Get SNP information for non-zero betas
+snp_info <- obj.bigSNP$map[ind_keep, ]
+beta_output <- data.table(
+  chr = snp_info$chromosome,
+  rsid = snp_info$marker.ID,
+  pos = snp_info$physical.pos,
+  a1 = snp_info$allele1,
+  a0 = snp_info$allele2,
+  beta = new_beta[ind_keep]
+)
+fwrite(beta_output, paste0(opt$out, "_betas.csv"))
+cat("Beta coefficients saved to:", paste0(opt$out, "_betas.csv"), "\n")
 
+# Save stacking model summary
+fwrite(final_mod$mod, paste0(opt$out, "_stacking_summary.txt"), sep = "\t")
 
-##      Mean      2.5%     97.5%        Sd 
-## 0.6829444 0.5847917 0.7756834 0.0486900
+# Create plots if ggplot2 is available
+if (requireNamespace("ggplot2", quietly = TRUE)) {
+  
+  # Plot comparing GWAS betas to SCT betas
+  if (length(ind_keep) > 0) {
+    plot_data <- data.frame(
+      gwas_beta = beta[ind_keep],
+      sct_beta = new_beta[ind_keep]
+    )
+    
+    p1 <- ggplot(plot_data, aes(x = gwas_beta, y = sct_beta)) +
+      geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+      geom_abline(slope = 0, intercept = 0, color = "blue", linetype = "dotted") +
+      geom_point(size = 0.6, alpha = 0.5) +
+      theme_minimal() +
+      labs(x = "Effect sizes from GWAS", 
+           y = "Non-zero effect sizes from SCT",
+           title = "Comparison of GWAS and SCT effect sizes")
+    
+    ggsave(paste0(opt$out, "_beta_comparison.pdf"), p1, width = 8, height = 6)
+  }
+  
+  # Plot PRS distribution
+  plot_data2 <- data.frame(
+    Phenotype = y,
+    PRS = pred_all[G_indices]  # Match PRS to samples with phenotypes
+  )
+  
+  if (trait_type == "binary") {
+    plot_data2$Phenotype <- factor(plot_data2$Phenotype, 
+                                   levels = 0:1, 
+                                   labels = c("Control", "Case"))
+    
+    p2 <- ggplot(plot_data2[!is.na(plot_data2$Phenotype), ], 
+                 aes(x = PRS, fill = Phenotype)) +
+      geom_density(alpha = 0.5) +
+      theme_minimal() +
+      labs(x = "Polygenic Risk Score", 
+           y = "Density",
+           title = "PRS Distribution by Phenotype")
+  } else {
+    # For quantitative traits, show correlation
+    p2 <- ggplot(plot_data2[!is.na(plot_data2$Phenotype), ], 
+                 aes(x = PRS, y = Phenotype)) +
+      geom_point(alpha = 0.5) +
+      geom_smooth(method = "lm", se = TRUE, color = "blue") +
+      theme_minimal() +
+      labs(x = "Polygenic Risk Score", 
+           y = pheno_col,
+           title = paste("PRS vs", pheno_col)) +
+      annotate("text", x = Inf, y = Inf, 
+               label = paste("r =", round(cor(plot_data2$PRS, plot_data2$Phenotype, 
+                                             use = "complete.obs"), 3)),
+               hjust = 1.1, vjust = 1.1)
+  }
+  
+  ggsave(paste0(opt$out, "_PRS_distribution.pdf"), p2, width = 8, height = 6)
+  cat("Plots saved\n")
+}
 
-ggplot(data.frame(Phenotype = factor(y[ind.test], levels = 0:1, 
-        labels = c("Control", "Case")),
-        Probability = 1 / (1 + exp(-pred)))) + theme_bigstatsr() +
-        geom_density(aes(Probability, fill = Phenotype), alpha = 0.3)
+# Also find best single C+T model for comparison
+cat("\nFinding best single C+T model for comparison...\n")
+library(tidyr)
 
-
-# Best C+T predictions
-#
-# Instead of stacking, an alternative is to choose the best C+T score based 
-# on the computed grid. This procedure is appealing when there are not enough 
-# individuals to learn the stacking weights.
-
-library(dplyr)
-
-## Warning: package 'dplyr' was built under R version 4.2.3
 grid2 <- attr(all_keep, "grid") %>%
   mutate(thr.lp = list(attr(multi_PRS, "grid.lpS.thr")), id = row_number()) %>%
-  tidyr::unnest(cols = "thr.lp")
-s <- nrow(grid2)
-grid2$auc <- big_apply(multi_PRS, a.FUN = function(X, ind, s, y.train) {
-  # Sum over all chromosomes, for the same C+T parameters
-  single_PRS <- rowSums(X[, ind + s * (0:2)])  ## replace by 0:21 in real data
-  bigstatsr::AUC(single_PRS, y.train)
-}, ind = 1:s, s = s, y.train = y[ind.train],
+  unnest(cols = "thr.lp")
+
+s <- nrow(attr(all_keep, "grid"))
+n_chr <- length(unique(CHR))
+
+# Evaluate each C+T model
+grid2$metric <- big_apply(multi_PRS, a.FUN = function(X, ind, s, y.train) {
+  # Sum over all chromosomes
+  single_PRS <- rowSums(X[, ind + s * (0:(n_chr-1))])
+  
+  if (trait_type == "binary") {
+    # Use AUC for binary traits
+    bigstatsr::AUC(single_PRS, y.train)
+  } else {
+    # Use correlation for quantitative traits
+    abs(cor(single_PRS, y.train, use = "complete.obs"))
+  }
+}, ind = 1:s, s = s, y.train = y_train,
 a.combine = 'c', block.size = 1, ncores = NCORES)
-max_prs <- grid2 %>% arrange(desc(auc)) %>% slice(1:10) %>% print() %>% slice(1)
 
-## # A tibble: 10 × 7
-##     size thr.r2 grp.num thr.imp thr.lp    id   auc
-##    <int>  <dbl>   <int>   <dbl>  <dbl> <int> <dbl>
-##  1  4000   0.05       1       1  1.63      7 0.651
-##  2 10000   0.05       1       1  0.733     8 0.651
-##  3 10000   0.05       1       1  1.63      8 0.651
-##  4 10000   0.05       1       1  0.455     8 0.650
-##  5  5000   0.1        1       1  0.733    12 0.650
-##  6 10000   0.05       1       1  0.492     8 0.650
-##  7 10000   0.05       1       1  0.127     8 0.650
-##  8  4000   0.05       1       1  1.01      7 0.650
-##  9 10000   0.05       1       1  0.149     8 0.650
-## 10 10000   0.05       1       1  0.533     8 0.650
+# Find best model
+best_ct <- grid2 %>% 
+  arrange(desc(metric)) %>% 
+  slice(1)
 
-ind.keep <- unlist(purrr::map(all_keep, max_prs$id))
-sum(lpval[ind.keep] > max_prs$thr.lp)
+metric_name <- if(trait_type == "binary") "AUC" else "Correlation"
+cat("Best single C+T model: size =", best_ct$size, 
+    ", thr.r2 =", best_ct$thr.r2, 
+    ", thr.lp =", round(best_ct$thr.lp, 3),
+    ", ", metric_name, "=", round(best_ct$metric, 4), "\n")
 
-## [1] 1098
+# Save best C+T parameters
+fwrite(best_ct, paste0(opt$out, "_best_CT_params.txt"), sep = "\t")
 
-AUCBoot(
-  snp_PRS(G, beta[ind.keep], ind.test = ind.test, ind.keep = ind.keep,
-          lpS.keep = lpval[ind.keep], thr.list = max_prs$thr.lp),
-  y[ind.test]
-)
-
-##      Mean      2.5%     97.5%        Sd 
-## 0.6779916 0.5814000 0.7691177 0.0477630
-
-# For this example, the best C+T predictions provides an AUC of 67% whereas stacking, # nolint: line_length_linter.
-# which should be preferred, provides an AUC of 68.5%.
-
-output <- capture.output(AUCBoot(
-  snp_PRS(G, beta[ind.keep], ind.test = ind.test, ind.keep = ind.keep,
-          lpS.keep = lpval[ind.keep], thr.list = max_prs$thr.lp),
-  y[ind.test]
-))
-
-write(output, file = paste(opt$file, "_best_ct_auc.txt", sep = ""))
-
-
+cat("\n=== SCT COMPLETED SUCCESSFULLY ===\n")
+cat("Trait type:", trait_type, "\n")
+cat("Output files created:\n")
+cat("  PRS scores:", paste0(opt$out, "_PRS.csv"), "\n")
+cat("  Beta coefficients:", paste0(opt$out, "_betas.csv"), "\n")
+cat("  Stacking summary:", paste0(opt$out, "_stacking_summary.txt"), "\n")
+if (trait_type == "binary") {
+  cat("  AUC results:", paste0(opt$out, "_AUC.txt"), "\n")
+} else {
+  cat("  Performance metrics:", paste0(opt$out, "_metrics.txt"), "\n")
+}
+cat("  Best C+T params:", paste0(opt$out, "_best_CT_params.txt"), "\n")

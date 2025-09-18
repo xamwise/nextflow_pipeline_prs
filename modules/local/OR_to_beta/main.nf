@@ -1,4 +1,4 @@
-process OR_to_beta{
+process or_to_beta{
 
     tag "${name}"
     label 'process_single'
@@ -13,6 +13,6 @@ process OR_to_beta{
 
     script:
     """
-    Rscript ${params.base_dir}/bin/OR_to_beta.R --input $input --out $out
+    Rscript ${params.base_dir}/bin/OR_to_beta.R --file $input --out $out
     """
 }

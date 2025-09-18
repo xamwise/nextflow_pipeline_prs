@@ -1,5 +1,5 @@
 # PRS Models Pipeline Parameters
-# Usage: nextflow run workflows/prs_models_pipeline.nf -params-file params_prs_only.yaml
+# Usage: nextflow run workflows/prs_models_pipeline.nf -params-file params_prs.yaml
 
 # General Settings
 population: EUR
@@ -12,16 +12,21 @@ pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.e
 sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.QC.gz
 
 # Model Selection
-run_lassosum: true
+run_lassosum: false
 run_prsice: true
-run_ldpred2: true
-run_prs_cs: true
+run_ldpred2: false
+run_prs_cs: false
+run_prs_csx: false
+run_sbayesr: false
+run_prset: false
+run_lassosum2: false
+run_sct: false
 
 # PRSice Parameters
 prsice:
   a1: A1
   a2: A2
-  stat: OR
+  stat: BETA
   binary_target: F
   base_maf: "MAF:0.01"
   base_info: "INFO:0.8"
@@ -33,7 +38,37 @@ ldpred2:
 
 # PRS-CS Parameters
 prs_cs:
-  n_gwas: 20000
+  n_gwas: 388028
+
+# PRS-CSX Parameters
+prs_csx:
+  n_gwas: 388028
+  population: EUR # AFR, AMR, EAS, EUR and SAS are allowed
+
+# SBAYESR Parameters
+sbayesr:
+  ld_folder: ukbEUR_HM3
+  annotation: annot_baseline2.2.txt
+
+# PRSet Parameters
+prset:
+  a1: A1
+  a2: A2
+  stat: OR
+  binary_target: F
+  base_maf: "MAF:0.01"
+  base_info: "INFO:0.8"
+  gtf: "gene.gtf"
+  set: "sets.txt"
+
+# LASSOSUM2 Parameters
+lassosum2:
+  sample_size: 388028
+  trait: "quant"
+
+sct:
+  split: 0.7
+
 
 # Resources
 max_memory: 64.GB

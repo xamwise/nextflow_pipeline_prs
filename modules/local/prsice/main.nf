@@ -22,9 +22,11 @@ process prsice {
 
     script:
     """
+    mkdir -p ${out}
+
     Rscript ${params.base_dir}/bin/PRSice.R \\
         --prsice ${params.base_dir}/bin/PRSice_mac \\
-        --base $base  \
+        --base $base  \\
         --target $target \\
         --A1 $a1 \\
         --A2 $a2 \\
@@ -34,7 +36,7 @@ process prsice {
         --binary-target $binary_target \\
         --base-maf $base_maf \\
         --base-info $base_info \\
-        --out $out 
+        --out ${out}/prsice
     """
 
 }

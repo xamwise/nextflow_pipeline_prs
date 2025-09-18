@@ -25,8 +25,8 @@ import os
 import sys
 import getopt
 
-import parse_genet
-import mcmc_gtb
+import parse_genet_x
+import mcmc_gtb_x
 import gigrnd
 
 
@@ -127,25 +127,25 @@ def main():
 
         if os.path.isfile(param_dict['ref_dir'] + '/snpinfo_mult_1kg_hm3'):
             ref = '1kg'
-            ref_dict = parse_genet.parse_ref(param_dict['ref_dir'] + '/snpinfo_mult_1kg_hm3', int(chrom), ref)
+            ref_dict = parse_genet_x.parse_ref(param_dict['ref_dir'] + '/snpinfo_mult_1kg_hm3', int(chrom), ref)
         elif os.path.isfile(param_dict['ref_dir'] + '/snpinfo_mult_ukbb_hm3'):
             ref = 'ukbb'
-            ref_dict = parse_genet.parse_ref(param_dict['ref_dir'] + '/snpinfo_mult_ukbb_hm3', int(chrom), ref)
+            ref_dict = parse_genet_x.parse_ref(param_dict['ref_dir'] + '/snpinfo_mult_ukbb_hm3', int(chrom), ref)
 
-        vld_dict = parse_genet.parse_bim(param_dict['bim_prefix'], int(chrom))
+        vld_dict = parse_genet_x.parse_bim(param_dict['bim_prefix'], int(chrom))
 
         sst_dict = {}
         for pp in range(n_pop):
-            sst_dict[pp] = parse_genet.parse_sumstats(ref_dict, vld_dict, param_dict['sst_file'][pp], param_dict['pop'][pp], param_dict['n_gwas'][pp])
+            sst_dict[pp] = parse_genet_x.parse_sumstats(ref_dict, vld_dict, param_dict['sst_file'][pp], param_dict['pop'][pp], param_dict['n_gwas'][pp])
 
         ld_blk = {}
         blk_size = {}
         for pp in range(n_pop):
-            ld_blk[pp], blk_size[pp] = parse_genet.parse_ldblk(param_dict['ref_dir'], sst_dict[pp], param_dict['pop'][pp], int(chrom), ref)
+            ld_blk[pp], blk_size[pp] = parse_genet_x.parse_ldblk(param_dict['ref_dir'], sst_dict[pp], param_dict['pop'][pp], int(chrom), ref)
 
-        snp_dict, beta_dict, frq_dict, idx_dict = parse_genet.align_ldblk(ref_dict, vld_dict, sst_dict, n_pop, int(chrom))
+        snp_dict, beta_dict, frq_dict, idx_dict = parse_genet_x.align_ldblk(ref_dict, vld_dict, sst_dict, n_pop, int(chrom))
 
-        mcmc_gtb.mcmc(param_dict['a'], param_dict['b'], param_dict['phi'], snp_dict, beta_dict, frq_dict, idx_dict, param_dict['n_gwas'], ld_blk, blk_size,
+        mcmc_gtb_x.mcmc(param_dict['a'], param_dict['b'], param_dict['phi'], snp_dict, beta_dict, frq_dict, idx_dict, param_dict['n_gwas'], ld_blk, blk_size,
             param_dict['n_iter'], param_dict['n_burnin'], param_dict['thin'], param_dict['pop'], int(chrom),
             param_dict['out_dir'], param_dict['out_name'], param_dict['meta'], param_dict['write_pst'], param_dict['seed'])
 

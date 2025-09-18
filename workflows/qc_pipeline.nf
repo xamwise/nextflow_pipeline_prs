@@ -24,6 +24,8 @@ include { sex_check } from '../modules/local/sex_check'
 include { relatedness } from '../modules/local/relatedness'
 include { qc_wrap_up } from '../modules/local/qc_wrap_up'
 include { pcs } from '../modules/local/pcs'
+include { or_to_beta } from '../modules/local/OR_to_beta'
+include { beta_to_OR } from '../modules/local/beta_to_OR'
 
 workflow QC_PIPELINE {
     take:
@@ -40,6 +42,7 @@ workflow QC_PIPELINE {
         input_prefix = "${raw_dir}/${population}"
         qc_prefix = "${qc_dir}/${population}.QC"
         sum_stats = "${sum_stats_dir}/Height.gwas.txt.gz"
+        sum_stats_modified = "${sum_stats_dir}/Height.modified.txt.gz"
         sum_stats_qc = "${sum_stats_dir}/Height.QC.gz"
         
         // Step 1: Basic Quality Control
@@ -51,10 +54,17 @@ workflow QC_PIPELINE {
             params.qc.geno ?: 0.01,
             params.qc.hwe ?: 1e-6
         )
-        
+
+        // Step 1.5: Convert OR to BETA if needed
+        or_to_beta(
+            sum_stats,
+            sum_stats_modified
+        )
+
         // Step 2: Summary Statistics QC
         quality_control_sum(
-            sum_stats,
+            or_to_beta.out,
+            // sum_stats,
             sum_stats_qc,
             params.qc_sum.info ?: 0.8,
             params.qc_sum.maf ?: 0.01

@@ -13,6 +13,6 @@ process beta_to_OR{
 
     script:
     """
-    Rscript ${params.base_dir}/bin/beta_to_OR.R --input $input --out $out
+    Rscript ${params.base_dir}/bin/beta_to_OR.R --file $input --out $out
     """
 }

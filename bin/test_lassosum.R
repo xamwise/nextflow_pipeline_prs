@@ -92,83 +92,16 @@ target.res <- validate(out, pheno = as.data.frame(target.pheno), covar=as.data.f
 # Get the maximum R2
 r2 <- max(target.res$validation.table$value)^2
 
-# Extract PRS for the best model using target.res$best.pgs
-best.prs <- target.res$best.pgs
-
-# Create PRS output dataframe
-prs_output <- data.table(
-  FID = target.pheno$FID,
-  IID = target.pheno$IID,
-  PRS = best.prs
-)
-
-# Extract beta coefficients for the best model using target.res$best.beta
-best.beta <- target.res$best.beta
-
-# Get SNP information from the bim file
-snp.info <- fread(paste0(bfile, ".bim"))
-
-# Check if out$test.extract exists to get the SNPs used
-if (!is.null(out$test.extract) && length(out$test.extract) > 0) {
-  # Extract only the SNPs that were used in the analysis
-  used.snps <- snp.info[out$test.extract, ]
-} else {
-  # Assume all SNPs were used if test.extract is not available
-  used.snps <- snp.info
-}
-
-# Make sure the number of betas matches the number of SNPs
-if (length(best.beta) != nrow(used.snps)) {
-  cat("Warning: Number of betas (", length(best.beta), ") doesn't match number of SNPs (", 
-      nrow(used.snps), ")\n")
-  # Adjust to the smaller number
-  min.length <- min(length(best.beta), nrow(used.snps))
-  used.snps <- used.snps[1:min.length, ]
-  best.beta <- best.beta[1:min.length]
-}
-
-# Create beta output dataframe
-beta_output <- data.table(
-  rsid = used.snps$V2,
-  chr = used.snps$V1,
-  pos = used.snps$V4,
-  a1 = used.snps$V5,
-  a0 = used.snps$V6,
-  beta = best.beta
-)
-
-# Write out the results
+# writte out the results
 write.table(target.res$validation.table, 
             file=paste0(prefix, "_lassosum.txt"), 
             sep="\t", 
             row.names=F, 
             quote=F)
 
-# Write maximum R2
+# write maximum R2
 write.table(r2, 
             file=paste0(prefix, "_lassosum_r2.txt"), 
             sep="\t", 
             row.names=F, 
             quote=F)
-
-# Save PRS scores for each individual
-prs_file <- paste0(prefix, "_PRS.csv")
-fwrite(prs_output, prs_file, sep=",")
-cat("PRS scores saved to:", prs_file, "\n")
-
-# Save posterior effect sizes for each SNP
-beta_file <- paste0(prefix, "_betas.csv")
-fwrite(beta_output, beta_file, sep=",")
-cat("Posterior effect sizes saved to:", beta_file, "\n")
-
-cat("\n=== LASSOSUM RESULTS SUMMARY ===\n")
-cat("Output files created:\n")
-cat("  Validation results:", paste0(prefix, "_lassosum.txt"), "\n")
-cat("  R-squared:", paste0(prefix, "_lassosum_r2.txt"), "\n")
-cat("  PRS scores:", prs_file, "\n")
-cat("  Beta coefficients:", beta_file, "\n")
-cat("  Number of individuals with PRS:", nrow(prs_output), "\n")
-cat("  Number of SNPs with betas:", nrow(beta_output), "\n")
-
-# Close the cluster
-stopCluster(cl)
