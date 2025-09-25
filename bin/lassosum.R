@@ -59,7 +59,7 @@ ld.file <- "EUR.hg19"
 # output prefix
 prefix <- opt$out
 # Read in the target phenotype file
-target.pheno <- fread(opt$pheno)[,c("FID", "IID", "Height")]
+target.pheno <- fread(opt$pheno)[,c("FID", "IID", "phenotype")]
 # Read in the summary statistics
 ss <- fread(sum.stat)
 # Remove P-value = 0, which causes problem in the transformation

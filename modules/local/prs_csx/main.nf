@@ -106,6 +106,8 @@ process prs_csx {
 
     script:
     """
+    mkdir -p ${out_dir}/${out_name}
+
     python ${params.base_dir}/bin/PRScsx.py \\
         --ref_dir $ref_dir \\
         --bim_prefix $bim_prefix \\

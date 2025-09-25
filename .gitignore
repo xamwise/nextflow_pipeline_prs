@@ -12,3 +12,4 @@ null/
 out/
 .vscode*
 .devcontainer*
+db.sqlite3

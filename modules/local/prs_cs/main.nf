@@ -101,7 +101,11 @@ process prs_cs {
     path('prs_cs*.html'), emit: prs_cs, optional: true
 
     script:
+ 
+    
     """
+    mkdir -p ${out_dir}
+
     python ${params.base_dir}/bin/PRScs.py \\
         --ref_dir $ref_dir \\
         --bim_prefix $bim_prefix \\

@@ -1,0 +1,36 @@
+# Pipeline configuration for Deep Learning PRS prediction
+
+# Base paths
+base_dir: "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs"
+input_plink: "${base_dir}/data/raw/test/test"
+phenotype_file: "/data/raw/test/phenotype_A.phen"  # Optional, if not in PLINK
+
+# Data reuse configuration
+data_reuse:
+  use_existing_converted: false
+  existing_genotype_file: ""
+  existing_phenotype_file: ""
+  use_existing_splits: false
+  existing_splits_file: ""
+
+# Training parameters
+n_folds: 5
+test_size: 0.2
+val_size: 0.1
+seed: 42
+max_epochs: 20
+batch_size: 500
+learning_rate: 0.0001  # 1e-5
+
+# Hyperparameter optimization
+hyperopt:
+  enabled: false
+  n_trials: 20
+
+# Weights & Biases configuration
+use_wandb: false
+wandb_project: "prs-prediction-DL"
+wandb_entity: ""
+
+# Optional features
+create_visualizations: false

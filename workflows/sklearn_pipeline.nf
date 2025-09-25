@@ -3,22 +3,20 @@
 nextflow.enable.dsl=2
 
 // Pipeline parameters for sklearn models
-params.input_plink = "${baseDir}/data/genotypes" // PLINK file prefix
-params.outdir = "${baseDir}/results/sklearn"
-params.config = "${baseDir}/workflows/config/sklearn_config.yaml"
-params.n_folds = 5
-params.test_size = 0.2
-params.val_size = 0.1
-params.seed = 42
+//params.input_plink_sklearn = "${params.base_dir}/data/raw/test/test" // PLINK file prefix
+params.outdir = "${params.base_dir}/out/sklearn"
 params.n_jobs = -1  // Use all available cores
-params.n_trials = 50  // For hyperparameter optimization
 
-// Model types to train
-params.models = "linear,ridge,lasso"
-params.feature_selection = true
-params.n_features = 1000  // Top features to select
+// Default parameters (will be overridden by params file)
+// params.data_reuse = [:]
+// params.models = [:]
+// params.feature_selection = [enabled: false]
+// params.splitting = [test_size: 0.2, val_size: 0.1, n_folds: 5, seed: 42]
+// params.hyperopt = [enabled: true, n_trials_default: 10]
+// params.ensemble = [enabled: false]
+// params.interpretability = [shap_analysis: false]
 
-// Process to convert PLINK to sklearn-compatible format
+// Process to convert PLINK using DL pipeline's converter
 process CONVERT_PLINK_SKLEARN {
     publishDir "${params.outdir}/processed_data", mode: 'copy'
     label 'process_medium'
@@ -27,51 +25,51 @@ process CONVERT_PLINK_SKLEARN {
     path plink_prefix
     
     output:
-    path "genotype_matrix.npz", emit: genotype_data
+    path "genotype_data.h5", emit: genotype_data
     path "phenotypes.csv", emit: phenotypes
-    path "feature_names.txt", emit: features
     path "data_stats.json", emit: stats
     
     script:
     """
-    python ${baseDir}/scripts/sklearn/plink_to_sklearn.py \
-        --plink_prefix ${plink_prefix} \
-        --output_matrix genotype_matrix.npz \
+    # Use the same converter as DL pipeline
+    python ${params.base_dir}/bin/plink_converter.py \
+        --plink_prefix ${params.base_dir}${params.input_plink_sklearn} \
+        --output_h5 genotype_data.h5 \
         --output_pheno phenotypes.csv \
-        --output_features feature_names.txt \
         --stats_file data_stats.json \
-        --handle_missing impute
+        --phenotype_file ${params.base_dir}${params.input_phenotype_file}
     """
 }
 
 // Process for feature selection
 process FEATURE_SELECTION {
     publishDir "${params.outdir}/feature_selection", mode: 'copy'
-    label 'process_high'
+    label 'process_medium'
     
     input:
     path genotype_data
     path phenotypes
-    path feature_names
+    path indices
     
     output:
-    path "selected_features.npz", emit: selected_data
+    path "selected_features.h5", emit: selected_data
     path "feature_importance.csv", emit: importance
     path "selected_indices.npy", emit: indices
     path "feature_selection_report.html", emit: report
     
     when:
-    params.feature_selection
+    params.feature_selection.enabled
     
     script:
+    def methods_str = params.feature_selection.methods.join(',')  // Fix: join array to string
     """
-    python ${baseDir}/scripts/sklearn/feature_selector.py \
+    python ${params.base_dir}/bin/sklearn/feature_selector.py \
         --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
-        --feature_names ${feature_names} \
-        --n_features ${params.n_features} \
-        --methods univariate,lasso,rf,mutual_info \
-        --output_data selected_features.npz \
+        --indices_file ${indices} \
+        --n_features ${params.feature_selection.n_features} \
+        --methods ${methods_str} \
+        --output_data selected_features.h5 \
         --output_importance feature_importance.csv \
         --output_indices selected_indices.npy \
         --output_report feature_selection_report.html \
@@ -79,7 +77,7 @@ process FEATURE_SELECTION {
     """
 }
 
-// Process for data splitting
+// Process for data splitting using DL pipeline's splitter
 process SPLIT_DATA_SKLEARN {
     publishDir "${params.outdir}/data_splits", mode: 'copy'
     
@@ -90,24 +88,22 @@ process SPLIT_DATA_SKLEARN {
     output:
     path "splits.json", emit: splits
     path "split_indices.npz", emit: indices
-    path "cv_folds.json", emit: cv_folds
     
     script:
-    def input_data = params.feature_selection ? genotype_data : genotype_data
     """
-    python ${baseDir}/scripts/sklearn/data_splitter_sklearn.py \
-        --genotype_file ${input_data} \
+    # Use the same splitter as DL pipeline
+    python ${params.base_dir}/bin/data_splitter.py \
+        --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
-        --test_size ${params.test_size} \
-        --val_size ${params.val_size} \
-        --n_folds ${params.n_folds} \
-        --seed ${params.seed} \
-        --stratify auto \
+        --test_size ${params.splitting.test_size} \
+        --val_size ${params.splitting.val_size} \
+        --n_folds ${params.splitting.n_folds} \
+        --seed ${params.splitting.seed} \
         --output_splits splits.json \
-        --output_indices split_indices.npz \
-        --output_cv cv_folds.json
+        --output_indices split_indices.npz
     """
 }
+
 
 // Process for hyperparameter optimization
 process HYPERPARAMETER_OPTIMIZATION {
@@ -116,7 +112,7 @@ process HYPERPARAMETER_OPTIMIZATION {
     maxForks 3  // Limit parallel hyperopt jobs
     
     input:
-    tuple val(model_type), path(genotype_data), path(phenotypes), path(splits), path(cv_folds)
+    tuple val(model_type), path(genotype_data), path(phenotypes), path(splits)
     
     output:
     tuple val(model_type), path("best_params_${model_type}.json"), emit: best_params
@@ -125,16 +121,17 @@ process HYPERPARAMETER_OPTIMIZATION {
     path "optimization_report_${model_type}.html", emit: report
     
     script:
+    def n_trials = params.models[model_type].n_trials ?: params.hyperopt.n_trials_default
     """
-    python ${baseDir}/scripts/sklearn/sklearn_hyperopt.py \
+    python ${params.base_dir}/bin/sklearn/sklearn_hyperopt.py \
         --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
         --splits_file ${splits} \
-        --cv_folds ${cv_folds} \
+        --cv_folds ${splits} \
         --model_type ${model_type} \
-        --n_trials ${params.n_trials} \
+        --n_trials ${n_trials} \
         --n_jobs ${params.n_jobs} \
-        --seed ${params.seed} \
+        --seed ${params.splitting.seed} \
         --output_params best_params_${model_type}.json \
         --output_study optuna_study_${model_type}.pkl \
         --output_history optimization_history_${model_type}.csv \
@@ -149,7 +146,7 @@ process TRAIN_MODEL_CV {
     
     input:
     tuple val(model_type), path(best_params), path(genotype_data), path(phenotypes), 
-          path(splits), path(cv_folds)
+          path(splits)
     
     output:
     tuple val(model_type), path("model_${model_type}_fold_*.pkl"), emit: models
@@ -159,11 +156,11 @@ process TRAIN_MODEL_CV {
     
     script:
     """
-    python ${baseDir}/scripts/sklearn/train_sklearn_cv.py \
+    python ${params.base_dir}/bin/sklearn/train_sklearn_cv.py \
         --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
         --splits_file ${splits} \
-        --cv_folds ${cv_folds} \
+        --cv_folds ${splits} \
         --best_params ${best_params} \
         --model_type ${model_type} \
         --n_jobs ${params.n_jobs} \
@@ -174,7 +171,7 @@ process TRAIN_MODEL_CV {
     """
 }
 
-// Process for ensemble model creation
+// Process for ensemble model creation (optional)
 process CREATE_ENSEMBLE {
     publishDir "${params.outdir}/ensemble", mode: 'copy'
     label 'process_medium'
@@ -190,14 +187,17 @@ process CREATE_ENSEMBLE {
     path "ensemble_weights.json", emit: weights
     path "ensemble_performance.json", emit: performance
     
+    when:
+    params.ensemble.enabled
+    
     script:
     """
-    python ${baseDir}/scripts/sklearn/create_ensemble.py \
+    python ${params.base_dir}/bin/sklearn/create_ensemble.py \
         --models_dir . \
         --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
         --splits_file ${splits} \
-        --methods voting,stacking,blending \
+        --methods voting,stacking \
         --output_model ensemble_model.pkl \
         --output_weights ensemble_weights.json \
         --output_performance ensemble_performance.json
@@ -219,8 +219,9 @@ process EVALUATE_MODEL {
     path "shap_analysis_${model_type}.html", emit: shap
     
     script:
+    def shap_flag = params.interpretability.shap_analysis ? "true" : "false"
     """
-    python ${baseDir}/scripts/sklearn/evaluate_sklearn.py \
+    python ${params.base_dir}/bin/sklearn/evaluate_sklearn.py \
         --models ${models} \
         --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
@@ -230,7 +231,12 @@ process EVALUATE_MODEL {
         --output_predictions test_predictions_${model_type}.csv \
         --output_plots evaluation_plots_${model_type}.pdf \
         --output_shap shap_analysis_${model_type}.html \
-        --calculate_shap true
+        --calculate_shap ${shap_flag}
+    
+    # Create empty SHAP file if not calculated
+    if [ "${shap_flag}" = "false" ]; then
+        echo "<html><body><p>SHAP analysis disabled</p></body></html>" > shap_analysis_${model_type}.html
+    fi
     """
 }
 
@@ -250,7 +256,7 @@ process COMPARE_MODELS {
     
     script:
     """
-    python ${baseDir}/scripts/sklearn/compare_models.py \
+    python ${params.base_dir}/bin/sklearn/compare_models.py \
         --metrics_files ${all_metrics} \
         --predictions_files ${all_predictions} \
         --output_report model_comparison.html \
@@ -275,120 +281,203 @@ process GENERATE_REPORT {
     path "sklearn_pipeline_summary.pdf", emit: summary
     
     script:
+    def ensemble_arg = ensemble_performance.name != "none" ? "--ensemble ${ensemble_performance}" : ""
+    def features_arg = feature_importance.name != "none" ? "--features ${feature_importance}" : ""
     """
-    python ${baseDir}/scripts/sklearn/generate_report.py \
+    python ${params.base_dir}/bin/sklearn/generate_report.py \
         --comparison ${comparison_report} \
-        --features ${feature_importance} \
+        ${features_arg} \
         --cv_results ${all_cv_results} \
-        --ensemble ${ensemble_performance} \
+        ${ensemble_arg} \
         --output_html sklearn_pipeline_report.html \
         --output_pdf sklearn_pipeline_summary.pdf
     """
 }
 
-// Main workflow
-workflow SKLEARN_PIPELINE {
-    
-    // Convert PLINK data
-    plink_ch = Channel.fromPath(params.input_plink)
-    converted = CONVERT_PLINK_SKLEARN(plink_ch)
-    
-    // Feature selection (optional)
-    if (params.feature_selection) {
-        selected = FEATURE_SELECTION(
-            converted.genotype_data,
-            converted.phenotypes,
-            converted.features
+workflow SKLEARN_MODELS {
+    take:
+        genotype_data
+        phenotype_data
+        splits_data
+        base_dir
+        
+    main:
+        // Feature selection (optional)
+        if (params.feature_selection.enabled) {
+            FEATURE_SELECTION(
+                genotype_data,
+                phenotype_data,
+                splits_data
+            )
+            selected_data = FEATURE_SELECTION.out.selected_data
+            feature_importance = FEATURE_SELECTION.out.importance
+        } else {
+            selected_data = genotype_data
+            feature_importance = Channel.value(file("none"))
+        }
+        
+        // Prepare channels for enabled models
+        models_ch = Channel.empty()
+        
+        if (params.models.linear.enabled) {
+            models_ch = models_ch.mix(Channel.of("linear"))
+        }
+        if (params.models.ridge.enabled) {
+            models_ch = models_ch.mix(Channel.of("ridge"))
+        }
+        if (params.models.lasso.enabled) {
+            models_ch = models_ch.mix(Channel.of("lasso"))
+        }
+        if (params.models.elasticnet.enabled) {
+            models_ch = models_ch.mix(Channel.of("elasticnet"))
+        }
+        if (params.models.rf.enabled) {
+            models_ch = models_ch.mix(Channel.of("rf"))
+        }
+        if (params.models.gbm.enabled) {
+            models_ch = models_ch.mix(Channel.of("gbm"))
+        }
+        if (params.models.xgboost.enabled) {
+            models_ch = models_ch.mix(Channel.of("xgboost"))
+        }
+        if (params.models.svm.enabled) {
+            models_ch = models_ch.mix(Channel.of("svm"))
+        }
+        
+        // Process each model - combine with data
+        model_input = models_ch
+            .combine(selected_data)
+            .combine(phenotype_data)
+            .combine(splits_data)
+        
+        // Create two separate channels for hyperopt and non-hyperopt models
+        // Use map to add a flag, then branch based on the flag
+        model_with_flag = model_input.map { model_type, geno, pheno, splits ->
+            def needs_hyperopt = params.models[model_type].optimize && params.hyperopt.enabled
+            tuple(needs_hyperopt, model_type, geno, pheno, splits)
+        }
+        
+        // Split into two channels
+        hyperopt_models = model_with_flag
+            .filter { it[0] == true }
+            .map { flag, model_type, geno, pheno, splits ->
+                tuple(model_type, geno, pheno, splits)
+            }
+        
+        non_hyperopt_models = model_with_flag
+            .filter { it[0] == false }
+            .map { flag, model_type, geno, pheno, splits ->
+                tuple(model_type, geno, pheno, splits)
+            }
+        
+        // Run hyperopt for models that need it
+        HYPERPARAMETER_OPTIMIZATION(hyperopt_models)
+        
+        // Prepare training input from hyperopt results
+        hyperopt_train_input = HYPERPARAMETER_OPTIMIZATION.out.best_params
+            .combine(selected_data)
+            .combine(phenotype_data)
+            .combine(splits_data)
+        
+        // Create default params for models that don't need hyperopt
+        default_train_input = non_hyperopt_models.map { model_type, geno, pheno, splits ->
+            def params_json = params.models[model_type].default_params ?: [:]
+            def params_file = file("${params.outdir}/default_params_${model_type}.json")
+            params_file.parent.mkdirs()
+            params_file.text = groovy.json.JsonOutput.toJson(params_json)
+            tuple(model_type, params_file, geno, pheno, splits)
+        }
+        
+        // Combine both training inputs
+        all_train_input = hyperopt_train_input.mix(default_train_input)
+        
+        // Train models
+        TRAIN_MODEL_CV(all_train_input)
+        
+        // Evaluate models
+        eval_input = TRAIN_MODEL_CV.out.models
+            .combine(selected_data)
+            .combine(phenotype_data)
+            .combine(splits_data)
+        
+        EVALUATE_MODEL(eval_input)
+        
+        // Compare models
+        all_metrics = EVALUATE_MODEL.out.metrics.map { _, metrics -> metrics }.collect()
+        all_predictions = EVALUATE_MODEL.out.predictions.collect()
+        
+        COMPARE_MODELS(all_metrics, all_predictions)
+        
+        // Create ensemble if enabled
+        if (params.ensemble.enabled) {
+            all_models = TRAIN_MODEL_CV.out.models.map { _, models -> models }.flatten().collect()
+            CREATE_ENSEMBLE(
+                all_models,
+                selected_data,
+                phenotype_data,
+                splits_data
+            )
+            ensemble_performance = CREATE_ENSEMBLE.out.performance
+        } else {
+            ensemble_performance = Channel.value(file("none"))
+        }
+        
+        // Generate report
+        all_cv_results = TRAIN_MODEL_CV.out.cv_results.map { _, results -> results }.collect()
+        
+        GENERATE_REPORT(
+            COMPARE_MODELS.out.report,
+            feature_importance,
+            all_cv_results,
+            ensemble_performance
         )
-        genotype_for_training = selected.selected_data
-    } else {
-        genotype_for_training = converted.genotype_data
-    }
     
-    // Split data
-    splits = SPLIT_DATA_SKLEARN(
-        genotype_for_training,
-        converted.phenotypes
-    )
-    
-    // Create channel for each model type
-    model_types = Channel.from(params.models.tokenize(','))
-    
-    // Prepare input for hyperparameter optimization
-    hyperparam_input = model_types.combine(
-        genotype_for_training
-    ).combine(
-        converted.phenotypes
-    ).combine(
-        splits.splits
-    ).combine(
-        splits.cv_folds
-    )
-    
-    // Run hyperparameter optimization
-    best_params = HYPERPARAMETER_OPTIMIZATION(hyperparam_input)
-    
-    // Prepare input for training
-    training_input = best_params.best_params.combine(
-        genotype_for_training, by: 0
-    ).combine(
-        converted.phenotypes
-    ).combine(
-        splits.splits
-    ).combine(
-        splits.cv_folds
-    )
-    
-    // Train models with cross-validation
-    trained_models = TRAIN_MODEL_CV(training_input)
-    
-    // Create ensemble (collect all trained models)
-    all_models = trained_models.models.collect()
-    ensemble = CREATE_ENSEMBLE(
-        all_models,
-        genotype_for_training,
-        converted.phenotypes,
-        splits.splits
-    )
-    
-    // Evaluate models on test set
-    eval_input = trained_models.models.combine(
-        genotype_for_training, by: 0
-    ).combine(
-        converted.phenotypes
-    ).combine(
-        splits.splits
-    )
-    
-    evaluation = EVALUATE_MODEL(eval_input)
-    
-    // Compare all models
-    all_metrics = evaluation.metrics.collect()
-    all_predictions = evaluation.predictions.collect()
-    
-    comparison = COMPARE_MODELS(
-        all_metrics,
-        all_predictions
-    )
-    
-    // Generate final report
-    all_cv_results = trained_models.cv_results.collect()
-    
-    if (params.feature_selection) {
-        feature_report = selected.importance
-    } else {
-        feature_report = Channel.empty()
-    }
-    
-    final_report = GENERATE_REPORT(
-        comparison.report,
-        feature_report,
-        all_cv_results,
-        ensemble.performance
-    )
+    emit:
+        models = TRAIN_MODEL_CV.out.models
+        metrics = EVALUATE_MODEL.out.metrics
+        report = GENERATE_REPORT.out.report
 }
 
-// Workflow entry point
 workflow {
-    SKLEARN_PIPELINE()
+    // Main entry point
+    // Option 1: Use existing converted data
+    if (params.data_reuse.use_existing_converted && 
+        file(params.data_reuse.existing_genotype_file).exists() &&
+        file(params.data_reuse.existing_phenotype_file).exists()) {
+        
+        genotype_data = Channel.fromPath(params.data_reuse.existing_genotype_file)
+        phenotype_data = Channel.fromPath(params.data_reuse.existing_phenotype_file)
+    }
+    // Option 2: Convert PLINK data
+    else {
+        CONVERT_PLINK_SKLEARN(
+            Channel.fromPath(params.input_plink_sklearn)
+        )
+        genotype_data = CONVERT_PLINK_SKLEARN.out.genotype_data
+        phenotype_data = CONVERT_PLINK_SKLEARN.out.phenotypes
+    }
+    
+    // Option 1: Use existing splits
+    if (params.data_reuse.use_existing_splits && 
+        file(params.data_reuse.existing_splits_file).exists()) {
+        
+        splits_data = Channel.fromPath(params.data_reuse.existing_splits_file)
+    }
+    // Option 2: Create new splits
+    else {
+        SPLIT_DATA_SKLEARN(
+            genotype_data,
+            phenotype_data
+        )
+        splits_data = SPLIT_DATA_SKLEARN.out.indices
+    }
+    
+    
+    // Run sklearn models workflow
+    SKLEARN_MODELS(
+        genotype_data,
+        phenotype_data,
+        splits_data,
+        params.base_dir ?: System.getProperty("user.dir")
+    )
 }

@@ -2,19 +2,21 @@
 
 nextflow.enable.dsl=2
 
-// Pipeline parameters for Polygenic Risk Score Prediction
-params.input_plink = "./data/qc" // PLINK file prefix
-params.outdir = "./out"
-params.config = "./config/training_config.yaml"
+base_dir = "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs"
+
+// Pipeline parameters for Deep Learning-based Polygenic Risk Score Prediction
+params.input_plink = "${base_dir}/data/qc" // PLINK file prefix
+params.outdir = "${base_dir}/out"
+params.config = "${base_dir}/workflows/config/training_config.yaml"
 params.n_folds = 5
 params.test_size = 0.2
 params.val_size = 0.1
 params.seed = 42
-params.max_epochs = 100
-params.batch_size = 32
-params.learning_rate = 0.001
+params.max_epochs = 20
+params.batch_size = 500
+params.learning_rate = 1e-5
 params.n_trials = 20 // for hyperparameter optimization
-params.wandb_project = "prs-prediction"
+params.wandb_project = "prs-prediction-DL"
 params.wandb_entity = "your-entity" // Replace with your W&B entity
 
 // Process to convert PLINK to PyTorch-compatible format
@@ -31,7 +33,7 @@ process CONVERT_PLINK {
     
     script:
     """
-    python ./bin/plink_converter.py \
+    python ${base_dir}/bin/plink_converter.py \
         --plink_prefix ${plink_prefix} \
         --output_h5 genotype_data.h5 \
         --output_pheno phenotypes.csv \
@@ -53,7 +55,7 @@ process SPLIT_DATA {
     
     script:
     """
-    python ./bin/data_splitter.py \
+    python ${base_dir}/bin/data_splitter.py \
         --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
         --test_size ${params.test_size} \
@@ -81,7 +83,7 @@ process VISUALIZE_DATA {
     
     script:
     """
-    python ./scripts/data_visualizer.py \
+    python ${base_dir}/bin/data_visualizer.py \
         --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
         --stats_file ${stats} \
@@ -107,7 +109,7 @@ process HYPERPARAMETER_OPTIMIZATION {
     
     script:
     """
-    python ./bin/hyperparameter_optimizer.py \
+    python ${base_dir}/bin/hyperparameter_optimizer.py \
         --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
         --splits_file ${splits} \
@@ -135,7 +137,7 @@ process TRAIN_KFOLD {
     
     script:
     """
-    python ./bin/train_model.py \
+    python ${base_dir}/bin/train_model.py \
         --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
         --indices_file ${indices} \
@@ -169,7 +171,7 @@ process EVALUATE_MODELS {
     
     script:
     """
-    python ./bin/evaluate_models.py \
+    python ${base_dir}/bin/evaluate_models.py \
         --models ${models} \
         --metrics ${metrics} \
         --genotype_file ${genotype_data} \

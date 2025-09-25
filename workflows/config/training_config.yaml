@@ -36,7 +36,7 @@ model:
 # Optimizer configuration
 optimizer:
   type: "adamw"  # Options: adam, adamw, sgd
-  lr: 0.001
+  lr: 0.0001
   weight_decay: 0.01
   # SGD specific
   momentum: 0.9
@@ -52,7 +52,7 @@ scheduler:
   gamma: 0.1
 
 # Training parameters
-max_epochs: 20
+max_epochs: 5
 batch_size: 500
 num_workers: 4
 gradient_clip: 1.0

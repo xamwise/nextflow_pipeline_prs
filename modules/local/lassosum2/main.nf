@@ -19,6 +19,7 @@ process lassosum2{
     
     script:
     """
+    mkdir -p ${out}
     Rscript ${params.base_dir}/bin/lassosum2.R \
         --bed $bed \
         --sum_stats $sum_stats \
@@ -28,7 +29,7 @@ process lassosum2{
         --trait $trait \
         --n_samples $sample_size \
         --relax_qc 'TRUE' \
-        --out $out
+        --out $out/lassosum2
     """
 }
 

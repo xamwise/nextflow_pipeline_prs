@@ -26,6 +26,7 @@ include { qc_wrap_up } from '../modules/local/qc_wrap_up'
 include { pcs } from '../modules/local/pcs'
 include { or_to_beta } from '../modules/local/OR_to_beta'
 include { beta_to_OR } from '../modules/local/beta_to_OR'
+include { fill_missing } from '../modules/local/fill_missing'
 
 workflow QC_PIPELINE {
     take:
@@ -41,9 +42,9 @@ workflow QC_PIPELINE {
         // Input files
         input_prefix = "${raw_dir}/${population}"
         qc_prefix = "${qc_dir}/${population}.QC"
-        sum_stats = "${sum_stats_dir}/Height.gwas.txt.gz"
-        sum_stats_modified = "${sum_stats_dir}/Height.modified.txt.gz"
-        sum_stats_qc = "${sum_stats_dir}/Height.QC.gz"
+        sum_stats = "${sum_stats_dir}/${params.sumstats}.txt"
+        sum_stats_modified = "${sum_stats_dir}/${params.sumstats}.modified"
+        sum_stats_qc = "${sum_stats_dir}/${params.sumstats}.QC"
         
         // Step 1: Basic Quality Control
         quality_control(
@@ -55,6 +56,7 @@ workflow QC_PIPELINE {
             params.qc.hwe ?: 1e-6
         )
 
+        // Needs to be uncommented if using OR summary statistics
         // Step 1.5: Convert OR to BETA if needed
         or_to_beta(
             sum_stats,
@@ -128,7 +130,7 @@ workflow QC_PIPELINE {
         
         // Step 9: QC Wrap-up
         qc_wrap_up(
-            relatedness.out.collect(),
+            valid_samples.out.collect(),
             input_prefix,
             qc_prefix,
             "${qc_prefix}.snplist",
@@ -136,14 +138,25 @@ workflow QC_PIPELINE {
             "${qc_prefix}.mismatch",
             mismatching_snps.out
         )
+
+
+        // Optional: Fill Missing Alleles TODO: Implement imputation step
+        fill_missing(
+            qc_wrap_up.out,
+            qc_prefix,
+        )
         
         // Step 10: Generate Principal Components
         pcs(
-            qc_wrap_up.out,
+            fill_missing.out,
             input_prefix,
             "${qc_prefix}.prune.in",
             params.pcs.pca ?: 6
         )
+
+    
+
+
     
     emit:
         qc_data = qc_wrap_up.out

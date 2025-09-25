@@ -1,22 +1,39 @@
 # Configuration for Sklearn Models Pipeline
 
+base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
+input_plink_sklearn: /data/qc/EUR.QC  # PLINK file prefix
+input_phenotype_file: /data/raw/EUR/EUR.pheno  # Phenotype CSV file
+
 # Data preprocessing
 data:
-  input_format: 'plink'  # plink, csv, npz
+  input_format: 'h5'  # Use HDF5 format from DL pipeline
   handle_missing: 'impute'  # impute, drop, zero
   imputation_strategy: 'mean'  # mean, median, most_frequent
-  scaling: true
+  scaling: false
   scale_method: 'standard'  # standard, minmax, robust
+  auto_detect_task: true  # Automatically detect classification vs regression
+
+# Add this section to your config file
+data_reuse:
+  use_existing_converted: true  # Set to true to skip CONVERT_PLINK_SKLEARN
+  existing_genotype_file: "genotypes_test.h5"     # Path to existing genotype file (h5/npz)
+  existing_phenotype_file: "phenotypes_test.csv"    # Path to existing phenotype file
+
+  use_existing_splits: true     # Set to true to skip SPLIT_DATA_SKLEARN
+  existing_splits_file: "indices_test.npz"       # Path to existing splits NPZ file
+
+  use_existing_cv_folds: true   # Set to true to skip CREATE_CV_FOLDS
+  existing_cv_folds_file: "splits_test.json"     # Path to existing CV folds JSON file
 
 # Feature selection
 feature_selection:
-  enabled: true
-  n_features: 1000
-  methods:
-    - univariate  # f_regression
-    - lasso       # L1 regularization
-    - rf          # Random Forest importance
-    - mutual_info # Mutual information
+  enabled: false
+  n_features: 500
+  methods: ['lasso']
+   # - univariate  # f_regression or f_classif
+   # - lasso       # L1 regularization
+   # - rf          # Random Forest importance
+   # - mutual_info # Mutual information
   univariate_percentile: 10
   lasso_alpha: 0.01
   combine_method: 'union'  # union, intersection, weighted
@@ -26,31 +43,31 @@ splitting:
   test_size: 0.2
   val_size: 0.1
   n_folds: 5
-  stratify: false  # For regression, usually false
+  stratify: 'auto'  # auto, true, false - auto detects binary classification
   shuffle: true
   seed: 42
 
-# Models to train
+# Models to train (will adapt to classification/regression automatically)
 models:
   linear:
-    enabled: true
-    name: 'Linear Regression'
-    optimize: false  # No hyperparameters to optimize
+    enabled: false
+    name: 'Linear Model'  # LinearRegression or LogisticRegression
+    optimize: false
   
   ridge:
-    enabled: true
-    name: 'Ridge Regression'
+    enabled: false
+    name: 'Ridge'
     optimize: true
     n_trials: 50
   
   lasso:
-    enabled: true
-    name: 'Lasso Regression'
+    enabled: false
+    name: 'Lasso'
     optimize: true
     n_trials: 50
   
   elasticnet:
-    enabled: true
+    enabled: false
     name: 'Elastic Net'
     optimize: true
     n_trials: 50
@@ -59,14 +76,14 @@ models:
     enabled: true
     name: 'Random Forest'
     optimize: true
-    n_trials: 100
+    n_trials: 10
     default_params:
       n_estimators: 100
       max_depth: 10
       min_samples_split: 5
   
   gbm:
-    enabled: true
+    enabled: false
     name: 'Gradient Boosting'
     optimize: true
     n_trials: 100
@@ -79,39 +96,26 @@ models:
     enabled: true
     name: 'XGBoost'
     optimize: true
-    n_trials: 100
+    n_trials: 10
     default_params:
       n_estimators: 100
       learning_rate: 0.1
       max_depth: 6
   
-  lightgbm:
-    enabled: false  # Optional
-    name: 'LightGBM'
-    optimize: true
-    n_trials: 100
-  
-  catboost:
-    enabled: false  # Optional
-    name: 'CatBoost'
-    optimize: true
-    n_trials: 100
-  
   svm:
     enabled: true
     name: 'Support Vector Machine'
     optimize: true
-    n_trials: 50
+    n_trials: 10
     default_params:
       kernel: 'rbf'
 
-# Ensemble methods
+# Ensemble methods (optional)
 ensemble:
-  enabled: true
+  enabled: false  # Set to false by default
   methods:
     - voting     # Average predictions
     - stacking   # Meta-learner
-    - blending   # Holdout validation
   stacking_cv_folds: 3
   meta_learner: 'ridge'  # Model for stacking
 
@@ -125,43 +129,47 @@ training:
 
 # Hyperparameter optimization
 hyperopt:
-  enabled: true
-  framework: 'optuna'  # optuna, hyperopt, gridsearch
-  n_trials_default: 50
-  timeout: 3600  # Max time in seconds per model
+  enabled: false
+  framework: 'optuna'
+  n_trials_default: 5
+  timeout: 600  # Max time in seconds per model
   n_jobs: -1
   pruning: true
-  sampler: 'tpe'  # tpe, random, cmaes
+  sampler: 'tpe'
 
-# Evaluation metrics
+# Evaluation metrics (will use appropriate metrics based on task)
 metrics:
-  primary: 'r2'  # Primary metric for model selection
-  calculate:
-    - mse
-    - rmse
-    - mae
-    - r2
-    - explained_variance
-    - pearson_r
-    - spearman_r
-    - max_error
+  # For regression
+  regression:
+    primary: 'r2'
+    calculate:
+      - mse
+      - rmse
+      - mae
+      - r2
+      - explained_variance
+      - pearson_r
+      - spearman_r
   
-  # For binary classification if needed
+  # For classification
   classification:
-    - accuracy
-    - precision
-    - recall
-    - f1
-    - roc_auc
-    - pr_auc
+    primary: 'roc_auc'
+    calculate:
+      - accuracy
+      - precision
+      - recall
+      - f1
+      - roc_auc
+      - pr_auc
+      - confusion_matrix
 
 # Interpretability
 interpretability:
-  shap_analysis: true
-  shap_samples: 100  # Number of samples for SHAP
-  feature_importance: true
-  partial_dependence: true
-  pdp_features: 10  # Top N features for PDP
+  shap_analysis: false
+  shap_samples: 10
+  feature_importance: false
+  partial_dependence: false
+  pdp_features: 10
 
 # Visualization
 visualization:
@@ -169,19 +177,16 @@ visualization:
   formats: ['png', 'pdf', 'html']
   plots:
     - learning_curves
-    - validation_curves
     - feature_importance
-    - residual_plots
-    - prediction_scatter
-    - shap_summary
+    - residual_plots  # For regression
     - confusion_matrix  # For classification
+    - roc_curve  # For classification
 
 # Logging
 logging:
   level: 'INFO'
   mlflow: false
   wandb: false
-  tensorboard: false
   csv_log: true
 
 # Output settings
@@ -189,5 +194,5 @@ output:
   save_models: true
   save_predictions: true
   save_preprocessor: true
-  model_format: 'pickle'  # pickle, joblib
+  model_format: 'pickle'
   compression: false

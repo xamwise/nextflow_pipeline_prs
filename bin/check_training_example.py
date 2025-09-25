@@ -8,10 +8,10 @@ from genotype_dataset import GenotypeDataModule
 
 # Load the data module
 data_module = GenotypeDataModule(
-    h5_file='out/genotypes.h5',
-    phenotype_file='out/phenotypes.csv',
-    indices_file='out/indices.npz',
-    batch_size=32,
+    h5_file='out/genotypes_test.h5',
+    phenotype_file='out/phenotypes_test.csv',
+    indices_file='out/indices_test.npz',
+    batch_size=500,
     num_workers=0
 )
 

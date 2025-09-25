@@ -17,6 +17,8 @@ process lassosum{
 
     script:
     """
+    mkdir -p ${out}
+
     Rscript ${params.base_dir}/bin/lassosum.R --bed $bed --pheno $pheno --cov $cov --pcs $pcs --sum_stats $sum_stats --out $out
     """
 

@@ -16,6 +16,11 @@ from scipy import stats
 import sys
 import os
 
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report
+
+
+from nagelkerke_r2 import calculate_nagelkerke_r2
+
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -89,6 +94,26 @@ class Trainer:
             'train_metrics': [],
             'val_metrics': []
         }
+        
+    def _detect_task_type(self, phenotypes: torch.Tensor) -> str:
+        """
+        Detect task type based on phenotype data.
+        
+        Returns:
+            'binary', 'multiclass', or 'regression'
+        """
+        unique_values = torch.unique(phenotypes)
+        n_unique = len(unique_values)
+        
+        # Check if all values are integers and in a small range
+        if torch.all(phenotypes == phenotypes.long()):
+            if n_unique == 2:
+                return 'binary'
+            elif n_unique <= 20:  # Configurable threshold
+                return 'multiclass' 
+        
+        return 'regression'
+        
     
     def _create_optimizer(self) -> optim.Optimizer:
         """Create optimizer based on configuration."""
@@ -118,17 +143,34 @@ class Trainer:
             )
         else:
             raise ValueError(f"Unknown optimizer type: {opt_type}")
-    
-    def _create_loss_function(self) -> nn.Module:
-        """Create loss function based on configuration."""
-        loss_type = self.config.get('loss_function', 'mse').lower()
         
+    def _create_loss_function(self) -> nn.Module:
+        """Create loss function based on task type and configuration."""
+        # Auto-detect task type if not specified
+        if not hasattr(self, 'task_type'):
+            # Get a sample from the data to detect task type
+            sample_loader = self.data_module.train_dataloader(self.fold)
+            _, sample_phenotypes = next(iter(sample_loader))
+            self.task_type = self._detect_task_type(sample_phenotypes)
+            logger.info(f"Detected task type: {self.task_type}")
+        
+        loss_type = self.config.get('loss_function', 'auto').lower()
+        
+        if loss_type == 'auto':
+            if self.task_type == 'binary':
+                return nn.BCEWithLogitsLoss()
+            elif self.task_type == 'multiclass':
+                return nn.CrossEntropyLoss()
+            else:  # regression
+                return nn.MSELoss()
+        
+        # Manual selection (existing code)
         if loss_type == 'mse':
             return nn.MSELoss()
         elif loss_type == 'mae':
             return nn.L1Loss()
-        elif loss_type == 'huber':
-            return nn.HuberLoss()
+        elif loss_type == 'bce':
+            return nn.BCEWithLogitsLoss()
         elif loss_type == 'crossentropy':
             return nn.CrossEntropyLoss()
         else:
@@ -180,6 +222,10 @@ class Trainer:
         
         # CSV logger for backup
         self.csv_log_path = self.output_dir / f'training_log_fold_{self.fold}.csv'
+        
+    def calculate_nagelkerke_r2(self, predictions: np.ndarray, targets: np.ndarray) -> float:
+        """Calculate Nagelkerke R2 for binary classification."""
+        return calculate_nagelkerke_r2(predictions, targets)
     
     def train_epoch(self) -> Tuple[float, Dict[str, float]]:
         """
@@ -277,52 +323,65 @@ class Trainer:
         predictions: torch.Tensor,
         targets: torch.Tensor
     ) -> Dict[str, float]:
-        """
-        Calculate evaluation metrics for PRS.
-        
-        Args:
-            predictions: Model predictions
-            targets: Ground truth values
-            
-        Returns:
-            Dictionary of metrics
-        """
-        predictions = predictions.numpy()
-        targets = targets.numpy()
+        """Calculate evaluation metrics based on task type."""
+        predictions_np = predictions.numpy()
+        targets_np = targets.numpy()
         
         metrics = {}
         
-        # Mean Squared Error
-        mse = np.mean((predictions - targets) ** 2)
-        metrics['mse'] = float(mse)
-        metrics['rmse'] = float(np.sqrt(mse))
-        
-        # Mean Absolute Error
-        mae = np.mean(np.abs(predictions - targets))
-        metrics['mae'] = float(mae)
-        
-        # R-squared (important for PRS)
-        ss_res = np.sum((targets - predictions) ** 2)
-        ss_tot = np.sum((targets - np.mean(targets)) ** 2)
-        r2 = 1 - (ss_res / (ss_tot + 1e-8))
-        metrics['r2'] = float(r2)
-        
-        # Pearson correlation (critical for PRS)
-        if predictions.shape[1] == 1:
-            from scipy.stats import pearsonr, spearmanr
-            corr, p_val = pearsonr(predictions.flatten(), targets.flatten())
-            metrics['pearson_r'] = float(corr)
-            metrics['pearson_p'] = float(p_val)
+        if self.task_type == 'regression':
+            # Regression metrics (existing code)
+            mse = np.mean((predictions_np - targets_np) ** 2)
+            metrics['mse'] = float(mse)
+            metrics['rmse'] = float(np.sqrt(mse))
+            metrics['mae'] = float(np.mean(np.abs(predictions_np - targets_np)))
             
-            # Spearman correlation
-            rho, p_val = spearmanr(predictions.flatten(), targets.flatten())
-            metrics['spearman_r'] = float(rho)
-            metrics['spearman_p'] = float(p_val)
+            # R-squared
+            ss_res = np.sum((targets_np - predictions_np) ** 2)
+            ss_tot = np.sum((targets_np - np.mean(targets_np)) ** 2)
+            r2 = 1 - (ss_res / (ss_tot + 1e-8))
+            metrics['r2'] = float(r2)
+            
+            # Correlations
+            from scipy.stats import pearsonr, spearmanr
+            if predictions_np.size > 1:
+                corr, p_val = pearsonr(predictions_np.flatten(), targets_np.flatten())
+                metrics['pearson_r'] = float(corr)
+                metrics['pearson_p'] = float(p_val)
         
-        # Variance explained
-        metrics['variance_explained'] = float(
-            1 - np.var(targets - predictions) / (np.var(targets) + 1e-8)
-        )
+        elif self.task_type == 'binary':
+            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+
+            
+            # Convert logits to probabilities and predictions
+            probs = torch.sigmoid(torch.tensor(predictions_np)).numpy()
+            pred_labels = (probs > 0.5).astype(int)
+            targets_flat = targets_np.flatten()
+            
+            metrics['accuracy'] = float(accuracy_score(targets_np, pred_labels))
+            metrics['precision'] = float(precision_score(targets_np, pred_labels, average='binary', zero_division=0))
+            metrics['recall'] = float(recall_score(targets_np, pred_labels, average='binary', zero_division=0))
+            metrics['f1'] = float(f1_score(targets_np, pred_labels, average='binary', zero_division=0))
+            
+            # AUC-ROC
+            try:
+                metrics['auc_roc'] = float(roc_auc_score(targets_np, probs))
+            except ValueError:
+                metrics['auc_roc'] = 0.0
+                
+            metrics['nagelkerke_r2'] = self.calculate_nagelkerke_r2(predictions_np, targets_np)
+
+        
+        elif self.task_type == 'multiclass':
+            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+            
+            # Convert to class predictions
+            pred_labels = np.argmax(predictions_np, axis=1)
+            
+            metrics['accuracy'] = float(accuracy_score(targets_np, pred_labels))
+            metrics['precision'] = float(precision_score(targets_np, pred_labels, average='weighted', zero_division=0))
+            metrics['recall'] = float(recall_score(targets_np, pred_labels, average='weighted', zero_division=0))
+            metrics['f1'] = float(f1_score(targets_np, pred_labels, average='weighted', zero_division=0))
         
         return metrics
     
@@ -333,7 +392,22 @@ class Trainer:
         Args:
             max_epochs: Maximum number of epochs to train
         """
-        logger.info(f"Starting training for fold {self.fold}")
+        logger.info(f"Starting training for fold {self.fold} - Task type: {self.task_type}")
+        
+            # Determine primary metric for model selection
+        if self.task_type == 'regression':
+            primary_metric = 'r2'
+            best_metric_value = -float('inf')
+            metric_improved = lambda new, best: new > best
+        elif self.task_type == 'binary':
+            primary_metric = 'auc_roc'
+            best_metric_value = -float('inf') 
+            metric_improved = lambda new, best: new > best
+        else:  # multiclass
+            primary_metric = 'accuracy'
+            best_metric_value = -float('inf')
+            metric_improved = lambda new, best: new > best
+        
         
         for epoch in range(max_epochs):
             self.current_epoch = epoch
@@ -360,11 +434,12 @@ class Trainer:
                 self.save_checkpoint(is_best=True)
                 logger.info(f"New best model saved with validation loss: {val_loss:.4f}")
             
-            # Also track best R2
-            if val_metrics.get('r2', 0) > self.best_val_r2:
-                self.best_val_r2 = val_metrics['r2']
-                self.save_checkpoint(is_best=True, metric='r2')
-                logger.info(f"New best model saved with validation R²: {self.best_val_r2:.4f}")
+            # Also track best Metric
+            current_metric = val_metrics.get(primary_metric, 0)
+            if metric_improved(current_metric, best_metric_value):
+                best_metric_value = current_metric
+                self.save_checkpoint(is_best=True, metric=primary_metric)
+                logger.info(f"New best model saved with {primary_metric}: {current_metric:.4f}")
             
             # Early stopping
             if self.check_early_stopping(val_loss):
@@ -392,11 +467,17 @@ class Trainer:
     ):
         """Log epoch results to W&B and CSV."""
         # Console logging
+        if self.task_type == 'regression':
+            key_metrics = f"R²: {val_metrics.get('r2', 0):.4f}, Pearson r: {val_metrics.get('pearson_r', 0):.4f}"
+        elif self.task_type == 'binary':
+            key_metrics = f"Accuracy: {val_metrics.get('accuracy', 0):.4f}, AUC: {val_metrics.get('auc_roc', 0):.4f}"
+        else:  # multiclass
+            key_metrics = f"Accuracy: {val_metrics.get('accuracy', 0):.4f}, F1: {val_metrics.get('f1', 0):.4f}"
+        
         logger.info(
             f"Epoch {self.current_epoch}: "
             f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, "
-            f"Val R²: {val_metrics.get('r2', 0):.4f}, "
-            f"Val Pearson r: {val_metrics.get('pearson_r', 0):.4f}"
+            f"{key_metrics}"
         )
         
         # Weights & Biases
@@ -569,20 +650,6 @@ def main():
     # Train model
     trainer.train(args.max_epochs)
     
-    # Copy final files to expected locations
-    import shutil
-    best_model_path = output_dir / f'best_model_fold_{args.fold}.pt'
-    if best_model_path.exists():
-        shutil.copy(best_model_path, args.output_model)
-    
-    metrics_path = output_dir / f'metrics_fold_{args.fold}.json'
-    if metrics_path.exists():
-        shutil.copy(metrics_path, args.output_metrics)
-    
-    log_path = output_dir / f'training_log_fold_{args.fold}.csv'
-    if log_path.exists():
-        shutil.copy(log_path, args.output_log)
-
 
 if __name__ == '__main__':
     main()

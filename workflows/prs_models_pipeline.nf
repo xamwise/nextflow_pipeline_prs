@@ -2,12 +2,16 @@
 
 /*
  * Polygenic Risk Score (PRS) Models Pipeline
- * This pipeline applies various PRS methods including:
+ * This pipeline applies various PRS methods to QC'd genetic data and summary statistics including:
  * - LassoSum
  * - PRSice-2
  * - LDpred2
  * - PRS-CS
  * - PRS-CSx
+ * - SBAYESR
+ * - PRSet
+ * - LassoSum2
+ * - SCT    
  */
 
 // Import PRS modules
@@ -45,7 +49,7 @@ workflow PRS_MODELS {
         supplement_data_dir = "${base_dir}/data/supplement_data"
         
         // Common input files
-        pheno_file = "${raw_dir}/${population}.height"
+        pheno_file = "${raw_dir}/${population}.pheno"
         cov_file = "${raw_dir}/${population}.cov"
         eigenvec_file = "${raw_dir}/${population}.eigenvec"
         qc_prefix = "${qc_dir}/${population}.QC"
@@ -65,7 +69,7 @@ workflow PRS_MODELS {
                 cov_file,
                 pcs_file,
                 sum_stats_qc,
-                "${results_dir}/lassosum/lassosum"
+                "${results_dir}/lassosum/"
             )
         }
         
@@ -86,7 +90,7 @@ workflow PRS_MODELS {
             )
         }
         
-        // Model 3: LDpred2
+        // // Model 3: LDpred2
         if (params.run_ldpred2) {
             ldpred2(
                 qc_data,
@@ -97,7 +101,7 @@ workflow PRS_MODELS {
                 sum_stats_qc,
                 params.ldpred2.trait ?: "quant",
                 params.ldpred2.model ?: "inf",
-                "${results_dir}/ldpred2/ldpred2"
+                "${results_dir}/ldpred2/"
             )
         }
         
@@ -115,7 +119,7 @@ workflow PRS_MODELS {
                 prs_cs_preprocess.out,
                 qc_prefix,
                 params.prs_cs.n_gwas ?: 20000,
-                "${results_dir}/prs_cs"
+                "${results_dir}/prs_cs/"
             )
         }
 
@@ -154,7 +158,7 @@ workflow PRS_MODELS {
             )
         }
 
-        // Model 7: PRSet 
+        // // Model 7: PRSet 
         if (params.run_prset) {
             prset(
                 sum_stats_qc,
@@ -173,7 +177,7 @@ workflow PRS_MODELS {
             )
         }
 
-        // Model 8: LassoSum2
+        // // Model 8: LassoSum2
         if (params.run_lassosum2) {
             lassosum2(
                 qc_data,
@@ -183,7 +187,7 @@ workflow PRS_MODELS {
                 sum_stats_qc,
                 params.lassosum2.trait,
                 params.lassosum2.sample_size,
-                "${results_dir}/lassosum2/lassosum2"
+                "${results_dir}/lassosum2/"
             )
         }
 
@@ -200,8 +204,8 @@ workflow PRS_MODELS {
         }
 
     emit:
-        lassosum_results = params.run_lassosum ? lassosum.out : Channel.empty()
         prsice_results = params.run_prsice ? prsice.out : Channel.empty()
+        lassosum_results = params.run_lassosum ? lassosum.out : Channel.empty()
         ldpred2_results = params.run_ldpred2 ? ldpred2.out : Channel.empty()
         prs_cs_results = params.run_prs_cs ? prs_cs.out : Channel.empty()
         prs_csx_results = params.run_prs_csx ? prs_csx.out : Channel.empty()

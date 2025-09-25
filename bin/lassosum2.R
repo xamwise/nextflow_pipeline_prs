@@ -223,6 +223,7 @@ if (nrow(df_beta) < 10) {
   stop("Too few SNPs remain after QC (", nrow(df_beta), "). Please check your data or try --relax_qc TRUE", call.=FALSE)
 }
 
+
 # Create correlation matrix
 cat("\nComputing LD matrix...\n")
 

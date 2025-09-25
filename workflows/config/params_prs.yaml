@@ -9,18 +9,18 @@ base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
 use_existing_qc: true
 qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC
 pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.eigenvec
-sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.QC.gz
+sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.gwas.QC
 
 # Model Selection
-run_lassosum: false
+run_lassosum: true
 run_prsice: true
-run_ldpred2: false
-run_prs_cs: false
-run_prs_csx: false
-run_sbayesr: false
-run_prset: false
-run_lassosum2: false
-run_sct: false
+run_ldpred2: true
+run_prs_cs: true
+run_prs_csx: true
+run_sbayesr: true
+run_prset: true
+run_lassosum2: true
+run_sct: true
 
 # PRSice Parameters
 prsice:
@@ -54,12 +54,12 @@ sbayesr:
 prset:
   a1: A1
   a2: A2
-  stat: OR
+  stat: BETA
   binary_target: F
   base_maf: "MAF:0.01"
   base_info: "INFO:0.8"
   gtf: "gene.gtf"
-  set: "sets.txt"
+  set: "set.txt"
 
 # LASSOSUM2 Parameters
 lassosum2:

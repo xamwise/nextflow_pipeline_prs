@@ -1,8 +1,12 @@
-Polygenic Risk Score Prediction Pipeline
-A state-of-the-art deep learning pipeline for predicting Polygenic Risk Scores (PRS) from genotype data using PyTorch and Nextflow.
+MLBF-PRS:  MACHINE LEARNING MODEL DEVELOPMENT AND BENCHMARKING FRAMEWORK FOR POLYGENIC RISK SCORES
+
+Here we present a state-of-the-art pipeline for predicting Polygenic Risk Scores (PRS) from genotype data using established PRS methods,
+PyTorch, sklearn and Nextflow.
 Features
 
 Deep Learning Models: Multiple architectures (MLP, CNN, Transformer, Attention-based)
+Machine Learning Models: SVM, XGBoost, Random Forests, Elasticnet etc.
+PRS-Methods
 Data Processing: Efficient handling of large-scale PLINK format genotype data
 Memory Efficient: Lazy loading with HDF5 for datasets that don't fit in memory
 Hyperparameter Optimization: Automated tuning using Optuna
@@ -12,30 +16,44 @@ Comprehensive Logging: Integration with Weights & Biases
 Visualization: Interactive reports and performance metrics
 
 Directory Structure
-prs-pipeline/
-├── main.nf                    # Main Nextflow pipeline
-├── nextflow.config           # Nextflow configuration
-├── requirements.txt          # Python dependencies
-├── config/
-│   └── training_config.yaml # Training configuration
-├── bin/
-│   ├── plink_converter.py   # PLINK to HDF5 conversion
-│   ├── data_splitter.py     # Data splitting utilities
-│   ├── data_visualizer.py   # Visualization tools
-│   ├── genotype_dataset.py  # PyTorch dataset implementation
-│   ├── models.py            # DL model architectures
-│   ├── train_model.py       # Training script
-│   ├── hyperparameter_optimizer.py # Hyperparameter tuning
-│   └── evaluate_models.py   # Model evaluation
-├── data/
-│   └── genotypes.*         # Input PLINK files (.bed, .bim, .fam)
-└── results/
-    ├── processed_data/      # Converted HDF5 files
-    ├── data_splits/         # Train/val/test indices
-    ├── visualizations/      # Data visualizations
-    ├── hyperparameter_search/ # Optuna results
-    ├── models/              # Trained model checkpoints
-    └── evaluation/          # Final evaluation reports
+nextflow_pipeline_prs/
+├── LICENSE
+├── README.md
+├── bin
+├── config
+│   ├── params.yaml
+│   └── training_config.yaml
+├── data
+│   ├── qc
+│   ├── raw
+│   ├── results
+│   └── supplement_data
+├── models
+│   ├── attention_model.py
+│   ├── bayesian_model.py
+│   ├── cnn_model.py
+│   ├── ensemble_model.py
+│   ├── mlp_model.py
+│   ├── models.py
+│   └── transformer_model.py
+├── modules
+│   └── local
+├── nextflow.config
+├── out
+├── requirements.txt
+├── run_pipelines.sh
+├── wandb
+└── workflows
+    ├── baselinePRS.nf
+    ├── config
+    ├── dl_prs.nf
+    ├── main_integrated.nf
+    ├── prs_models_pipeline.nf
+    ├── qc_pipeline.nf
+    ├── qc_test.nf
+    ├── sklearn_pipeline.nf
+
+
 Installation
 Prerequisites
 
@@ -43,9 +61,14 @@ Nextflow (version 21.04+)
 Python 3.8+
 CUDA 11.0+ (for GPU support, optional)
 
+R packages:
+install.packages(c("optparse", "bigsnpr", "tidyr", "ggplot", "Matrix",
+                   "data", "fmsb", "devtools", "tidyverse", "magrittr"))
+
+
 Python Dependencies
 Install required Python packages:
-bashpip install -r requirements.txt
+pip install -r requirements.txt
 For GPU support with PyTorch:
 bashpip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 For CPU only:
@@ -53,6 +76,20 @@ bashpip install torch torchvision torchaudio
 Weights & Biases Setup
 To use W&B logging (recommended):
 bashwandb login
+
+PRS methods:
+Follow the intructions on the respective Git:
+LDpred-2:   https://choishingwan.github.io/PRS-Tutorial/ldpred/
+PRSice:     https://choishingwan.github.io/PRS-Tutorial/prsice/
+lassosum:   https://choishingwan.github.io/PRS-Tutorial/lassosum/
+lassosum2:  https://privefl.github.io/bigsnpr/reference/snp_lassosum2.html
+PRSet:      https://choishingwan.github.io/PRSice/quick_start_prset/
+PRScs:      https://github.com/getian107/PRScs
+PRScsx:     https://github.com/getian107/PRScsx
+SBayesRC:   https://github.com/zhilizheng/SBayesRC
+Plink1.9:   https://www.cog-genomics.org/plink/
+
+
 Usage
 1. Prepare your data
 Place your PLINK files in the data/ directory:
@@ -69,50 +106,23 @@ Training parameters
 Hyperparameter search space
 Data augmentation settings
 
-3. Run the pipeline
+3. Run the pipelines
+Overall run
+
+bash run_pipelines.h
+
 Basic run:
-bashnextflow run main.nf
-With custom parameters:
-bashnextflow run main.nf \
-    --input_plink data/my_genotypes \
-    --outdir results \
-    --max_epochs 100 \
-    --n_folds 5 \
-    --n_trials 30 \
-    --wandb_project my-prs-project
+
+nextflow run workflows/qc_pipeline.nf -params-file workflows/config/params_qc.yaml
+nextflow run workflows/prs_models_pipeline.nf -params-file workflows/config/params_prs.yaml
+nextflow run workflows/dl_prs.nf --params-file workflows/config/dl_config.yaml
+nextflow run workflows/sklearn_pipeline.nf -params-file workflows/config/sklearn_config.yaml
+
 Resume a previous run:
-bashnextflow run main.nf -resume
-Run with specific profile:
-bashnextflow run main.nf -profile gpu    # For GPU execution
-nextflow run main.nf -profile slurm  # For SLURM cluster
+nextflow run main.nf -resume ...
+
 4. Monitor training
 Track experiments in Weights & Biases dashboard at https://wandb.ai
-Pipeline Parameters
-ParameterDefaultDescription--input_plinkdata/genotypesPLINK file prefix--outdirresultsOutput directory--n_folds5Number of CV folds--test_size0.2Test set proportion--val_size0.1Validation set proportion--max_epochs100Maximum training epochs--batch_size32Batch size--n_trials20Optuna trials--wandb_projectprs-predictionW&B project name--wandb_entitynullW&B entity/team name
-Model Architectures
-1. MLP (Multi-Layer Perceptron)
-
-Fully connected layers with batch normalization
-Configurable hidden dimensions and dropout
-Suitable for smaller SNP sets
-
-2. CNN (1D Convolutional Neural Network)
-
-Treats SNPs as sequential data
-Multiple convolutional blocks with pooling
-Effective for capturing local SNP patterns
-
-3. Transformer
-
-Self-attention mechanism for SNP interactions
-Positional encoding for SNP positions
-Best for capturing long-range dependencies
-
-4. Attention Model
-
-Multi-head self-attention
-Learns SNP importance weights
-Good interpretability
 
 Output Files
 Trained Models
@@ -135,27 +145,27 @@ Performance Metrics
 The pipeline evaluates models using PRS-specific metrics:
 
 R² Score: Variance explained
+AUC-ROC: Classification evaluation
 Pearson/Spearman Correlation: Linear/rank correlation
-Calibration Metrics: Slope, intercept, ECE
 Risk Stratification: Odds ratios, risk ratios
 Decile Analysis: Performance across risk deciles
 
 Running Individual Scripts
 You can also run pipeline components individually:
 Convert PLINK to HDF5
-pythonpython scripts/plink_converter.py \
+python bin/plink_converter.py \
     --plink_prefix data/genotypes \
     --output_h5 results/genotypes.h5 \
     --output_pheno results/phenotypes.csv \
     --stats_file results/stats.json
 Split data
-pythonpython scripts/data_splitter.py \
+python bin/data_splitter.py \
     --genotype_file results/genotypes.h5 \
     --phenotype_file results/phenotypes.csv \
     --output_splits results/splits.json \
     --output_indices results/indices.npz
 Train a model
-pythonpython scripts/train_model.py \
+python bin/train_model.py \
     --genotype_file results/genotypes.h5 \
     --phenotype_file results/phenotypes.csv \
     --indices_file results/indices.npz \
@@ -164,6 +174,8 @@ pythonpython scripts/train_model.py \
     --output_model results/model.pt \
     --output_metrics results/metrics.json \
     --output_log results/log.csv
+
+
 Troubleshooting
 Memory Issues
 
@@ -182,11 +194,3 @@ Clear cache: nextflow clean -f
 Check logs: cat .nextflow.log
 Update Nextflow: nextflow self-update
 
-Citation
-If you use this pipeline in your research, please cite:
-bibtex@software{prs_pipeline,
-  title={Deep Learning Pipeline for Polygenic Risk Score Prediction},
-  author={Max Schuran},
-  year={2025},
-  url={https://github.com/yourusername/prs-pipeline}
-}

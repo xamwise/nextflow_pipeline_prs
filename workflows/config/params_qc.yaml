@@ -5,11 +5,13 @@
 population: EUR
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
 
+sumstats: Height.gwas
+
 # Quality Control Parameters
 qc:
   maf: 0.01
-  mind: 0.01
-  geno: 0.01
+  mind: 0.02
+  geno: 0.02
   hwe: 1e-6
 
 # Summary Statistics QC

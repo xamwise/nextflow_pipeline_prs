@@ -24,6 +24,8 @@ process prset {
 
     script:
     """
+    mkdir -p ${out}
+
     Rscript ${params.base_dir}/bin/PRSice.R \\
         --prsice ${params.base_dir}/bin/PRSice_mac \\
         --base $base  \
@@ -38,7 +40,7 @@ process prset {
         --base-info $base_info \\
         --out $out \\
         --gtf $gtf \\
-        --set $set
+        --msigdb $set
     """
 
 }
