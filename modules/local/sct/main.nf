@@ -23,6 +23,7 @@ process sct {
     --sum_stats $sst_file \\
     --pheno $pheno_file \\
     --train_prop $split \\
-    --out $out
+    --out $out \\
+    --out_dir $out_dir
      """
 }

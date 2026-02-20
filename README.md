@@ -88,7 +88,9 @@ PRScs:      https://github.com/getian107/PRScs
 PRScsx:     https://github.com/getian107/PRScsx
 SBayesRC:   https://github.com/zhilizheng/SBayesRC
 Plink1.9:   https://www.cog-genomics.org/plink/
+SCT:        https://privefl.github.io/bigsnpr/articles/SCT.html
 
+GWAS Tutorial: https://cloufield.github.io/GWASTutorial/
 
 Usage
 1. Prepare your data

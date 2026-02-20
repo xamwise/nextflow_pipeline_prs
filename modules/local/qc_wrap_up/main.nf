@@ -21,10 +21,11 @@ process qc_wrap_up{
     plink \\
     --bfile $input \\
     --make-bed \\
-    --keep $keep \\
     --out $out \\
     --extract $extract \\
     --exclude $exclude \\
     --a1-allele $a1
     """
 }
+
+    // --keep $keep \\

@@ -1,10 +1,12 @@
 #!/usr/bin/env Rscript
-
+library(bigstatsr)
 library(bigsnpr)
 library(data.table)
 library(dplyr)
 library(ggplot2)
 library(optparse)
+library(xgboost)
+
 
 option_list = list(
   make_option(c("-b", "--bed"), type="character", default=NULL, 
@@ -24,7 +26,10 @@ option_list = list(
   make_option(c("-c", "--ncores"), type="integer", default=NULL,
               help="number of cores to use [default: all available]", metavar="integer"),
   make_option(c("-o", "--out"), type="character", default=NULL,
-              help="output prefix", metavar="character")
+              help="output prefix", metavar="character"),
+  make_option(c("--out_dir"), type="character", default=".",
+              help="output directory [default: current directory]", metavar="character")
+  
 )
 
 opt_parser = OptionParser(option_list=option_list)
@@ -44,10 +49,10 @@ if (is.null(opt$ncores)) {
 cat("Using", NCORES, "cores\n")
 
 # Read or create bigSNP object
-rds_file <- paste0(opt$bed, ".rds")
+rds_file <- paste0(opt$bed, "_SCT.rds")
 if (!file.exists(rds_file)) {
   cat("Converting BED file to bigSNP format...\n")
-  snp_readBed(paste0(opt$bed, ".bed"))
+  snp_readBed(paste0(opt$bed, ".bed"), backingfile = paste0(opt$bed, "_SCT"))
 }
 obj.bigSNP <- snp_attach(rds_file)
 
@@ -249,13 +254,21 @@ all_keep <- snp_grid_clumping(G, CHR, POS,
 
 cat("Clumping completed with", nrow(attr(all_keep, "grid")), "parameter sets\n")
 
+
+cat("Checking missing values in genotype data...\n")
+
+sum(is.na(as.list(G)))
+
 # Calculate PRS for different thresholds
 cat("Computing PRS for multiple thresholds...\n")
-# Create backing file in current directory for Nextflow compatibility
+
+# Check G's backing file path
+cat("G backing file:", G$backingfile, "\n")
+
+
 multi_PRS <- snp_grid_PRS(G, all_keep, beta, lpval, 
                           ind.row = ind.train,
-                          backingfile = "./multi_PRS", 
-                          n_thr_lpS = 50, 
+                          n_thr_lpS = 50,
                           ncores = NCORES)
 
 cat("Computed", ncol(multi_PRS), "PRS for", nrow(multi_PRS), "individuals\n")
@@ -393,7 +406,7 @@ fwrite(beta_output, paste0(opt$out, "_betas.csv"))
 cat("Beta coefficients saved to:", paste0(opt$out, "_betas.csv"), "\n")
 
 # Save stacking model summary
-fwrite(final_mod$mod, paste0(opt$out, "_stacking_summary.txt"), sep = "\t")
+# fwrite(final_mod$mod, paste0(opt$out, "_stacking_summary.txt"), sep = "\t")
 
 # Create plots if ggplot2 is available
 if (requireNamespace("ggplot2", quietly = TRUE)) {

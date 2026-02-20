@@ -58,15 +58,15 @@ workflow QC_PIPELINE {
 
         // Needs to be uncommented if using OR summary statistics
         // Step 1.5: Convert OR to BETA if needed
-        or_to_beta(
-            sum_stats,
-            sum_stats_modified
-        )
+        // or_to_beta(
+        //     sum_stats,
+        //     sum_stats_modified
+        // )
 
         // Step 2: Summary Statistics QC
         quality_control_sum(
-            or_to_beta.out,
-            // sum_stats,
+            // or_to_beta.out,
+            sum_stats,
             sum_stats_qc,
             params.qc_sum.info ?: 0.8,
             params.qc_sum.maf ?: 0.01
@@ -107,26 +107,26 @@ workflow QC_PIPELINE {
             "${qc_prefix}.a1"
         )
         
-        // Step 7: Sex Check
-        sex_check(
-            valid_samples.out.collect(),
-            input_prefix,
-            qc_prefix,
-            "${qc_prefix}.prune.in",
-            "${qc_prefix}.valid.sample",
-            "${qc_prefix}.sexcheck",
-            "${qc_prefix}.valid"
-        )
+        // // Step 7: Sex Check
+        // sex_check(
+        //     valid_samples.out.collect(),
+        //     input_prefix,
+        //     qc_prefix,
+        //     "${qc_prefix}.prune.in",
+        //     "${qc_prefix}.valid.sample",
+        //     "${qc_prefix}.sexcheck",
+        //     "${qc_prefix}.valid"
+        // )
         
-        // Step 8: Relatedness Check
-        relatedness(
-            sex_check.out.collect(),
-            input_prefix,
-            qc_prefix,
-            "${qc_prefix}.prune.in",
-            "${qc_prefix}.valid",
-            params.relatedness.cutoff ?: 0.125
-        )
+        // // Step 8: Relatedness Check
+        // relatedness(
+        //     sex_check.out.collect(),
+        //     input_prefix,
+        //     qc_prefix,
+        //     "${qc_prefix}.prune.in",
+        //     "${qc_prefix}.valid",
+        //     params.relatedness.cutoff ?: 0.125
+        // )
         
         // Step 9: QC Wrap-up
         qc_wrap_up(

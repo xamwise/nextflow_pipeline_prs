@@ -101,7 +101,29 @@ if ("OR" %in% names(sumstats) && !"beta" %in% names(sumstats)) {
 # Calculate effective sample size based on trait type
 if (opt$trait == "binary") {
   if (is.null(opt$n_cases) || is.null(opt$n_controls)) {
-    stop("For binary traits, specify --n_cases and --n_controls", call.=FALSE)
+    if (!is.null(opt$pheno)) {
+      cat("Attempting to infer n_cases and n_controls from phenotype file...\n")
+      pheno_data <- fread(opt$pheno)
+      pheno_col <- names(pheno_data)[3]
+      n_cases <- sum(pheno_data[[pheno_col]] == 1, na.rm = TRUE)
+      n_controls <- sum(pheno_data[[pheno_col]] == 0, na.rm = TRUE)
+      
+      # Check if case/control labels are 1/2 instead of 0/1
+      if (n_cases == 0 && n_controls == 0) {
+        n_cases <- sum(pheno_data[[pheno_col]] == 2, na.rm = TRUE)
+        n_controls <- sum(pheno_data[[pheno_col]] == 1, na.rm = TRUE)
+      }
+      
+      if (n_cases > 0 && n_controls > 0) {
+        opt$n_cases <- n_cases
+        opt$n_controls <- n_controls
+        cat("Inferred: n_cases =", n_cases, ", n_controls =", n_controls, "\n")
+      } else {
+        stop("Could not infer n_cases and n_controls from phenotype file. Please specify them manually.", call.=FALSE)
+      }
+    } else {
+      stop("For binary traits, specify --n_cases and --n_controls (or provide --pheno to infer them)", call.=FALSE)
+    }
   }
   sumstats$n_eff <- 4 / (1 / opt$n_cases + 1 / opt$n_controls)
   cat("Binary trait: n_cases =", opt$n_cases, ", n_controls =", opt$n_controls, "\n")

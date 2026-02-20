@@ -2,47 +2,48 @@
 # Usage: nextflow run workflows/prs_models_pipeline.nf -params-file params_prs.yaml
 
 # General Settings
-population: EUR
+population: UKB_CRC
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
+sumstats: crc_assoc
 
 # Use existing QC data
 use_existing_qc: true
-qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/EUR.QC
-pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/EUR/EUR.eigenvec
-sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/Height.gwas.QC
+qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/UKB_CRC.QC
+pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/UKB_CRC/UKB_CRC.eigenvec
+sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/crc_assoc.QC
 
 # Model Selection
-run_lassosum: true
-run_prsice: true
+run_lassosum: false
+run_prsice: false
 run_ldpred2: true
-run_prs_cs: true
-run_prs_csx: true
-run_sbayesr: true
-run_prset: true
-run_lassosum2: true
-run_sct: true
+run_prs_cs: false
+run_prs_csx: false
+run_sbayesr: false
+run_prset: false
+run_lassosum2: false
+run_sct: false
 
 # PRSice Parameters
 prsice:
   a1: A1
   a2: A2
-  stat: BETA
-  binary_target: F
+  stat: OR
+  binary_target: T
   base_maf: "MAF:0.01"
   base_info: "INFO:0.8"
 
 # LDpred2 Parameters
 ldpred2:
-  trait: quant
-  model: inf
+  trait: bin
+  model: auto
 
 # PRS-CS Parameters
 prs_cs:
-  n_gwas: 388028
+  n_gwas: 315260
 
 # PRS-CSX Parameters
 prs_csx:
-  n_gwas: 388028
+  n_gwas: 315260
   population: EUR # AFR, AMR, EAS, EUR and SAS are allowed
 
 # SBAYESR Parameters
@@ -54,8 +55,8 @@ sbayesr:
 prset:
   a1: A1
   a2: A2
-  stat: BETA
-  binary_target: F
+  stat: OR
+  binary_target: T
   base_maf: "MAF:0.01"
   base_info: "INFO:0.8"
   gtf: "gene.gtf"
@@ -63,11 +64,15 @@ prset:
 
 # LASSOSUM2 Parameters
 lassosum2:
-  sample_size: 388028
-  trait: "quant"
+  sample_size: 315260
+  trait: "binary"
 
 sct:
-  split: 0.7
+  split: 0.8
+
+folds:
+  n_folds: 10
+  random_state: 42
 
 
 # Resources

@@ -27,6 +27,7 @@ include { sbayesr } from '../modules/local/sbayesr'
 include { prset } from '../modules/local/prset'
 include { lassosum2 } from '../modules/local/lassosum2'
 include { sct } from '../modules/local/sct'
+include { create_folds } from '../modules/local/create_folds'
 
 // Import QC pipeline if needed
 include { QC_PIPELINE } from './qc_pipeline.nf'
@@ -60,6 +61,16 @@ workflow PRS_MODELS {
             pcs_file,
             "${raw_dir}/${population}.covariate"
         )
+
+
+        create_folds(
+            pheno_file,
+            params.folds.n_folds,
+            "${qc_dir}/${population}/folds",
+            params.folds.random_state
+        )
+
+
         
         // Model 1: LassoSum
         if (params.run_lassosum) {
@@ -101,7 +112,9 @@ workflow PRS_MODELS {
                 sum_stats_qc,
                 params.ldpred2.trait ?: "quant",
                 params.ldpred2.model ?: "inf",
-                "${results_dir}/ldpred2/"
+                "${results_dir}/ldpred2/",
+                population,
+                qc_dir
             )
         }
         
@@ -110,7 +123,7 @@ workflow PRS_MODELS {
             // Preprocess summary statistics for PRS-CS
             prs_cs_preprocess(
                 sum_stats_qc,
-                "${sum_stats_dir}/Height.prs_cs.txt"
+                "${sum_stats_dir}/${params.sumstats}.prs_cs.txt"
             )
             
             // Run PRS-CS
@@ -143,7 +156,7 @@ workflow PRS_MODELS {
             // Prepare summary statistics using SBAYES-COJO
             sbayes_cojo(
                 sum_stats_qc,
-                "${sum_stats_dir}/Height.QC.ma"
+                "${sum_stats_dir}/${params.sumstats}.QC.ma"
             )
 
 
@@ -235,10 +248,10 @@ workflow {
         )
         
         PRS_MODELS(
-            qc_results.qc_data,
+            qc_results.qc_data.collect(),
             qc_results.pcs,
             qc_results.sum_stats_qc,
-            params.population ?: "EUR",
+            params.population ?: "UKR_CRC",
             params.base_dir ?: System.getProperty("user.dir")
         )
     }

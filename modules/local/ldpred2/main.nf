@@ -14,12 +14,16 @@ process ldpred2 {
     val trait
     val model
     val out
+    val data
+    val qc_prefix
 
     output:
     val out
 
     script:
     """
+
+    mkdir -p ${qc_prefix}/${data}/tmp-data
     mkdir -p ${out}
     Rscript ${params.base_dir}/bin/LDpred-2.R --bed $bed --pheno $pheno --cov $cov --pcs $pcs --ld $ld --sum_stats $sum_stats --trait $trait --model $model --out $out/ldpred2 
     """

@@ -2,10 +2,10 @@
 # Usage: nextflow run workflows/qc_pipeline.nf -params-file params_qc_only.yaml
 
 # General Settings
-population: EUR
+population: UKB_CRC
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
 
-sumstats: Height.gwas
+sumstats: crc_assoc
 
 # Quality Control Parameters
 qc:
