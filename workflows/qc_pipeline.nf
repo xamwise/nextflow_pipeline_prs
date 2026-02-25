@@ -27,6 +27,8 @@ include { pcs } from '../modules/local/pcs'
 include { or_to_beta } from '../modules/local/OR_to_beta'
 include { beta_to_OR } from '../modules/local/beta_to_OR'
 include { fill_missing } from '../modules/local/fill_missing'
+include { remove_participants } from '../modules/local/remove_participants'
+include { filter_participants } from '../modules/local/filter_participants'
 
 workflow QC_PIPELINE {
     take:

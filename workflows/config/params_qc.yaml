@@ -2,10 +2,10 @@
 # Usage: nextflow run workflows/qc_pipeline.nf -params-file params_qc_only.yaml
 
 # General Settings
-population: UKB_CRC
+population: balanced
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
 
-sumstats: crc_assoc
+sumstats: balanced_half_37_high_p
 
 # Quality Control Parameters
 qc:
@@ -28,6 +28,6 @@ pcs:
   pca: 6
 
 # Resources
-max_memory: 32.GB
-max_cpus: 8
+max_memory: 64.GB
+max_cpus: 14
 max_time: 12.h

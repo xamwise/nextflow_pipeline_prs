@@ -13,3 +13,5 @@ out/
 .vscode*
 .devcontainer*
 db.sqlite3
+plots/
+*.ipynb

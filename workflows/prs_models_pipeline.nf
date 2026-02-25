@@ -63,13 +63,14 @@ workflow PRS_MODELS {
         )
 
 
-        create_folds(
-            pheno_file,
-            params.folds.n_folds,
-            "${qc_dir}/${population}/folds",
-            params.folds.random_state
-        )
-
+        if (params.run_create_folds) {
+            create_folds(
+                pheno_file,
+                params.folds.n_folds,
+                "${qc_dir}/${population}",
+                params.folds.random_state
+            )
+        }
 
         
         // Model 1: LassoSum
@@ -128,7 +129,7 @@ workflow PRS_MODELS {
             
             // Run PRS-CS
             prs_cs(
-                "${ld_dir}/ldblk_1kg_eur",
+                "${ld_dir}/ldblk_ukbb_eur",
                 prs_cs_preprocess.out,
                 qc_prefix,
                 params.prs_cs.n_gwas ?: 20000,
@@ -162,6 +163,7 @@ workflow PRS_MODELS {
 
             // Run SBAYESR
             sbayesr(
+                qc_data,
                 sbayes_cojo.out,
                 "${ld_dir}/${params.sbayesr.ld_folder}",
                 "sbayesr_model",
@@ -251,7 +253,7 @@ workflow {
             qc_results.qc_data.collect(),
             qc_results.pcs,
             qc_results.sum_stats_qc,
-            params.population ?: "UKR_CRC",
+            params.population ?: "EUR",
             params.base_dir ?: System.getProperty("user.dir")
         )
     }

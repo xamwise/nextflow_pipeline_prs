@@ -84,7 +84,7 @@ workflow PRS_FOLD_MODELS {
                 params.prsice.a1 ?: "A1",
                 params.prsice.a2 ?: "A2",
                 params.prsice.stat ?: "OR",
-                params.prsice.binary_target ?: "F",
+                params.prsice.binary_target ?: "T",
                 params.prsice.base_maf ?: "MAF:0.01",
                 params.prsice.base_info ?: "INFO:0.8"
             )
@@ -222,44 +222,52 @@ workflow PRS_MODELS {
         base_dir
 
     main:
-        // ── Directory definitions ────────────────────────────────────────────
-        raw_dir            = "${base_dir}/data/raw/${population}"
-        qc_dir             = "${base_dir}/data/qc"
-        results_dir        = "${base_dir}/data/results/${population}"
-        ld_dir             = "${base_dir}/data/supplement_data/LD"
-        sum_stats_dir      = "${base_dir}/data/supplement_data/sum_stats"
+        raw_dir             = "${base_dir}/data/raw/${population}"
+        qc_dir              = "${base_dir}/data/qc"
+        results_dir         = "${base_dir}/data/results/${population}"
+        ld_dir              = "${base_dir}/data/supplement_data/LD"
+        sum_stats_dir       = "${base_dir}/data/supplement_data/sum_stats"
         supplement_data_dir = "${base_dir}/data/supplement_data"
 
-        pheno_file   = "${raw_dir}/${population}.pheno"
-        cov_file     = "${raw_dir}/${population}.cov"
+        pheno_file = "${raw_dir}/${population}.pheno"
+        cov_file   = "${raw_dir}/${population}.cov"
 
-        // Bundle static directory paths into a single value channel for
-        // easy passage into PRS_FOLD_MODELS without re-specifying each time.
         base_dirs_ch = Channel.value([results_dir, ld_dir, sum_stats_dir, supplement_data_dir])
 
-        // ── 1. Generate cross-validation folds ──────────────────────────────
-        // Expected output: channel of [fold_id, train_ids_file, test_ids_file]
+        // ── 1. Generate fold files ───────────────────────────────────────────
+        // Creates: ${qc_dir}/${population}/folds/fold_1.txt ... fold_N.txt
+        // Each file contains the test IDs for that fold.
         create_folds(
             pheno_file,
             params.folds.n_folds,
-            "${qc_dir}/${population}/folds",
+            "${qc_dir}/${population}",
             params.folds.random_state
         )
 
-        // ── 2. Subsample all fold-dependent inputs to training IDs ──────────
+        // ── 2. Build one channel item per fold from the files on disk ────────
+        // We use create_folds.out to gate on completion, then flatMap over
+        // the expected fold indices to produce [fold_id, test_ids_file] tuples.
+        fold_files_ch = create_folds.out
+            .flatMap {
+                (1..params.folds.n_folds).collect { i ->
+                    tuple(i, file("${qc_dir}/${population}/folds/fold_${i}.txt"))
+                }
+            }
+        // fold_files_ch emits: [fold_id, test_ids_file]
+
+        // ── 3. Subsample inputs to training IDs per fold ────────────────────
         //
-        // filter_by_fold receives:
-        //   [fold_id, train_ids_file, test_ids_file]
-        //   + the shared QC plink prefix, pheno, cov, pcs, sum_stats
-        //
-        // It produces plink --keep filtered genotype files, a filtered pheno,
-        // a filtered cov, filtered pcs, and (optionally) filtered sum_stats,
-        // returning them as:
+        // filter_by_fold receives [fold_id, test_ids_file] and all shared inputs.
+        // Internally it should:
+        //   a) derive train IDs = all sample IDs in qc_data MINUS test IDs
+        //   b) plink --keep on the QC prefix with train IDs
+        //   c) filter pheno / cov / pcs to train IDs
+        // It emits:
         //   [fold_id, train_qc_prefix, train_pheno, train_cov, train_pcs,
         //    test_ids_file, train_sum_stats]
         //
         fold_inputs_ch = filter_by_fold(
-            create_folds.out,     // [fold_id, train_ids, test_ids]
+            fold_files_ch,      // [fold_id, test_ids_file]
             qc_data,
             pheno_file,
             cov_file,
@@ -268,29 +276,15 @@ workflow PRS_MODELS {
             "${qc_dir}/${population}/folds"
         )
 
-        // ── 3. Run all PRS models for every fold ─────────────────────────────
+        // ── 4. Run all PRS models for every fold ─────────────────────────────
         PRS_FOLD_MODELS(fold_inputs_ch, base_dirs_ch)
 
-        // ── 4. Aggregate per-fold results and run LR training / evaluation ───
-        //
-        // Collect each model's output across ALL folds, then pass the full set
-        // to train_evaluate_lr together with the per-fold test-ID lists and the
-        // original phenotype file (for true labels).
-        //
-        // train_evaluate_lr is the module you will implement; it should:
-        //   a) Evaluate each model's PRS scores on the held-out test set per fold
-        //   b) Concatenate per-fold evaluation metrics
-        //   c) Train a stacked LR on the per-fold training predictions
-        //   d) Produce final performance summaries
-        //
-        all_test_ids = PRS_FOLD_MODELS.out.test_ids.collect()
+        // ── 5. Aggregate and train stacked LR ────────────────────────────────
+        all_test_ids = fold_files_ch.map { fold_id, test_ids -> test_ids }.collect()
 
         train_evaluate_lr(
-            // Per-fold test ID lists so the script knows which samples to score
             all_test_ids,
-            // Raw phenotype file for ground-truth labels
             pheno_file,
-            // Collected score files from each model (empty channel if disabled)
             PRS_FOLD_MODELS.out.prsice_results.collect().ifEmpty([]),
             PRS_FOLD_MODELS.out.lassosum_results.collect().ifEmpty([]),
             PRS_FOLD_MODELS.out.ldpred2_results.collect().ifEmpty([]),
@@ -300,13 +294,11 @@ workflow PRS_MODELS {
             PRS_FOLD_MODELS.out.prset_results.collect().ifEmpty([]),
             PRS_FOLD_MODELS.out.lassosum2_results.collect().ifEmpty([]),
             PRS_FOLD_MODELS.out.sct_results.collect().ifEmpty([]),
-            // Output directory for LR artefacts
-            "${results_dir}/k_fold_predictive_model_results"
+            "${results_dir}/lr_ensemble"
         )
 
     emit:
         lr_results        = train_evaluate_lr.out
-        // Individual model results (all folds combined) still accessible if needed
         prsice_results    = PRS_FOLD_MODELS.out.prsice_results
         lassosum_results  = PRS_FOLD_MODELS.out.lassosum_results
         ldpred2_results   = PRS_FOLD_MODELS.out.ldpred2_results

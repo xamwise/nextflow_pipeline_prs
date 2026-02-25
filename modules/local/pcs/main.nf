@@ -15,8 +15,8 @@ process pcs{
 
     script:
     """
-    # First, we need to perform prunning
+    # Pruning before PCA
     plink --bfile $input --indep-pairwise 200 50 0.25 --out $input
-    plink --bfile $input --extract $extract --pca $pca --out $out
+    plink --bfile $input --extract $extract --pca $pca --out $out --memory 64000 --threads 8
     """
 }

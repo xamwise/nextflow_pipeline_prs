@@ -23,7 +23,7 @@ option_list = list(
               help="number of training samples (overrides train_prop)", metavar="integer"),
   make_option(c("-k", "--n_folds"), type="integer", default=10,
               help="number of folds for cross-validation [default: 10]", metavar="integer"),
-  make_option(c("-c", "--ncores"), type="integer", default=2,
+  make_option(c("-c", "--ncores"), type="integer", default=NULL,
               help="number of cores to use [default: all available]", metavar="integer"),
   make_option(c("-o", "--out"), type="character", default=NULL,
               help="output prefix", metavar="character"),
@@ -62,14 +62,26 @@ CHR <- obj.bigSNP$map$chromosome
 POS <- obj.bigSNP$map$physical.pos
 
 # Get phenotype
+pheno_col <- "phenotype"  # Default name
 if (!is.null(opt$pheno)) {
   cat("Reading phenotype file...\n")
-  pheno_col <- "phenotype"  # Default name
   pheno_data <- fread(opt$pheno)
   # Merge with fam file
-
-  y <- pheno_data$phenotype
-  obj.bigSNP$fam$affection <- y
+  fam_data <- obj.bigSNP$fam
+  setDT(fam_data)
+  
+  # Handle column names
+  if ("family.ID" %in% names(fam_data) && "sample.ID" %in% names(fam_data)) {
+    setnames(fam_data, c("family.ID", "sample.ID"), c("FID", "IID"))
+  } else if (!("FID" %in% names(fam_data) && "IID" %in% names(fam_data))) {
+    old_names <- names(fam_data)[1:2]
+    setnames(fam_data, old_names, c("FID", "IID"))
+  }
+  
+  fam_data <- merge(fam_data, pheno_data, by = c("FID", "IID"), all.x = TRUE)
+  # Assume phenotype is in the third column of pheno_data
+  pheno_col <- names(pheno_data)[3]
+  y <- fam_data[[pheno_col]]
   
 } else {
   # Use affection status from fam file
@@ -213,7 +225,7 @@ if (trait_type == "quantitative" && y_train_var < 1e-10) {
 # Match variants between genotype data and summary statistics
 cat("Matching variants...\n")
 map <- obj.bigSNP$map[, c(1, 4, 5, 6)]
-names(map) <- c("chr", "pos", "a1", "a0")
+names(map) <- c("chr", "pos", "a0", "a1")
 
 # Try matching with strand flipping first
 info_snp <- snp_match(sumstats[, required_cols], map)
@@ -275,28 +287,60 @@ if (trait_type == "quantitative") {
   y_train_std <- y_train
 }
 
+##############
+
+# DEBUG
+
+# Check multi_PRS
+cat("multi_PRS dimensions:", dim(multi_PRS), "\n")
+
+# For an FBM (Filebacked Big Matrix) object
+multi_PRS_mat <- multi_PRS[]   # extract as regular R matrix first, then inspect
+cat("NA values:", sum(is.na(multi_PRS_mat)), "\n")
+cat("Inf values in multi_PRS:", sum(is.infinite(multi_PRS_mat)), "\n")
+cat("NaN values in multi_PRS:", sum(is.nan(multi_PRS_mat)), "\n")
+
+# Check column variance - zero-variance columns are a common culprit
+col_vars <- apply(multi_PRS_mat, 2, var, na.rm = TRUE)
+cat("Columns with zero/NA variance:", sum(col_vars == 0 | is.na(col_vars)), "\n")
+
+# Check y
+cat("NA in y_train_std:", sum(is.na(y_train_std)), "\n")
+cat("y_train_std range:", range(y_train_std, na.rm = TRUE), "\n")
+
+##############
+
 
 # Perform stacking with appropriate parameters
-# Stacking - no family parameter, auto-detected from y.train
-
 tryCatch({
   final_mod <- snp_grid_stacking(
-    multi_PRS,
-    y_train_std,
-    ncores = NCORES,
-    K = opt$n_folds
+    multi_PRS, 
+    y_train_std, 
+    ncores = NCORES, 
+    K = min(opt$n_folds, length(unique(y_train_std)) - 1),  # Ensure K is valid
+    family = if(trait_type == "binary") "binomial" else "gaussian"
   )
- 
+  
+  # Get the best model
+  best_mod_idx <- which.min(final_mod$mod$validation_loss)
+  cat("Best model: alpha =", final_mod$mod$alpha[best_mod_idx], "\n")
+  cat("Validation loss:", final_mod$mod$validation_loss[best_mod_idx], "\n")
+  
 }, error = function(e) {
   cat("Error in stacking:", e$message, "\n")
-  cat("Trying with K=2...\n")
+  cat("Trying with reduced parameters...\n")
+  
+  # Try with fewer folds
   final_mod <<- snp_grid_stacking(
-    multi_PRS,
-    y_train_std,
-    ncores = NCORES,
-    K = 2
+    multi_PRS, 
+    y_train_std, 
+    ncores = NCORES, 
+    K = 2,  # Minimum folds
+    family = if(trait_type == "binary") "binomial" else "gaussian"
   )
- 
+  
+  best_mod_idx <<- which.min(final_mod$mod$validation_loss)
+  cat("Best model with K=2: alpha =", final_mod$mod$alpha[best_mod_idx], "\n")
 })
 
 # Extract new beta values
@@ -460,24 +504,18 @@ s <- nrow(attr(all_keep, "grid"))
 n_chr <- length(unique(CHR))
 
 # Evaluate each C+T model
-# Best single C+T model
-library(tidyr)
-grid2 <- attr(all_keep, "grid") %>%
-  mutate(thr.lp = list(attr(multi_PRS, "grid.lpS.thr")), id = row_number()) %>%
-  unnest(cols = "thr.lp")
-
-s <- nrow(grid2)  # 28 clumping sets × 50 thresholds = 1400, NOT just 28
-n_chr <- length(unique(CHR))
-cat("Grid size s:", s, " n_chr:", n_chr, "\n")  # sanity check: s * n_chr should == ncol(multi_PRS)
-
-grid2$metric <- big_apply(multi_PRS, a.FUN = function(X, ind, s, n_chr, y.train, trait_type) {
-  single_PRS <- rowSums(X[, ind + s * (0:(n_chr - 1))])
+grid2$metric <- big_apply(multi_PRS, a.FUN = function(X, ind, s, y.train) {
+  # Sum over all chromosomes
+  single_PRS <- rowSums(X[, ind + s * (0:(n_chr-1))])
+  
   if (trait_type == "binary") {
+    # Use AUC for binary traits
     bigstatsr::AUC(single_PRS, y.train)
   } else {
+    # Use correlation for quantitative traits
     abs(cor(single_PRS, y.train, use = "complete.obs"))
   }
-}, ind = 1:s, s = s, n_chr = n_chr, y.train = y_train, trait_type = trait_type,
+}, ind = 1:s, s = s, y.train = y_train,
 a.combine = 'c', block.size = 1, ncores = NCORES)
 
 # Find best model

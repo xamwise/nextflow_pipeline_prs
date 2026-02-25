@@ -65,9 +65,11 @@ file_dir <- unlist(strsplit(opt$bed, "[.]"))
 tmp      <- tempfile(tmpdir = paste(file_dir[1], "tmp-data", sep = "/"))
 on.exit(file.remove(paste0(tmp, ".sbk")), add = TRUE)
 
-rds_file <- paste(opt$bed, "rds", sep = ".")
-if (!file.exists(rds_file)) snp_readBed(paste(opt$bed, "bed", sep = "."))
-
+rds_file <- paste0(opt$bed, "_LD2.rds")
+if (!file.exists(rds_file)) {
+  cat("Converting BED file to bigSNP format...\n")
+  snp_readBed(paste0(opt$bed, ".bed"), backingfile = paste0(opt$bed, "_LD2"))
+}
 obj.bigSNP <- snp_attach(rds_file)
 genotype   <- obj.bigSNP$genotypes
 
@@ -125,7 +127,7 @@ ldsc <- snp_ldsc(
   blocks      = NULL
 )
 
-h2_est <- ldsc[["h2"]]
+h2_est <- max(ldsc[["h2"]], 1e-4)
 
 # ── Null model ────────────────────────────────────────────────────────────────
 

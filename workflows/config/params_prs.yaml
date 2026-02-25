@@ -2,26 +2,28 @@
 # Usage: nextflow run workflows/prs_models_pipeline.nf -params-file params_prs.yaml
 
 # General Settings
-population: UKB_CRC
+population: balanced
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
-sumstats: crc_assoc
+sumstats: balanced_half_37_high_p
 
 # Use existing QC data
 use_existing_qc: true
-qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/UKB_CRC.QC
-pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/UKB_CRC/UKB_CRC.eigenvec
-sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/crc_assoc.QC
+qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/balanced.QC
+pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/balanced/balanced.eigenvec
+sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/balanced_half_37_high_p.QC
 
 # Model Selection
-run_lassosum: false
-run_prsice: false
+run_lassosum: true
+run_prsice: true
 run_ldpred2: true
-run_prs_cs: false
-run_prs_csx: false
-run_sbayesr: false
+run_prs_cs: true
+run_prs_csx: true
+run_sbayesr: true
 run_prset: false
-run_lassosum2: false
-run_sct: false
+run_lassosum2: true
+run_sct: true
+
+run_create_folds: true
 
 # PRSice Parameters
 prsice:
@@ -39,11 +41,11 @@ ldpred2:
 
 # PRS-CS Parameters
 prs_cs:
-  n_gwas: 315260
+  n_gwas: 5000
 
 # PRS-CSX Parameters
 prs_csx:
-  n_gwas: 315260
+  n_gwas: 5000
   population: EUR # AFR, AMR, EAS, EUR and SAS are allowed
 
 # SBAYESR Parameters
@@ -64,7 +66,7 @@ prset:
 
 # LASSOSUM2 Parameters
 lassosum2:
-  sample_size: 315260
+  sample_size: 5000
   trait: "binary"
 
 sct:

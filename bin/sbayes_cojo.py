@@ -1,3 +1,4 @@
+from numpy import log
 import pandas as pd
 
 import argparse
@@ -25,6 +26,7 @@ def main():
         effect_col = 'BETA'
     elif 'OR' in df.columns:
         effect_col = 'OR'
+        df[effect_col] = df[effect_col].apply(lambda x: log(x) if x != 0 else 0)
     else:
         raise ValueError("No BETA or OR column found in input file.")
 

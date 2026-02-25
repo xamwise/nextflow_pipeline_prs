@@ -4,6 +4,7 @@ process sbayesr {
     publishDir "out/${params.run_id}/sbayesr", mode: 'copy'
 
     input:
+    val genotype_prefix
     val ma_file
     val ld_folder
     val out_prefix
@@ -37,6 +38,10 @@ process sbayesr {
     echo "Calculating PRS..."
 
     plink --bfile $bed --score '${out_dir}/${out_prefix}_sbrc.txt' --out $out_dir/prs_sbrc
+
+    Rscript -e "SBayesRC::prs(weight='${out_dir}/${out_prefix}_sbrc', genoPrefix='$genotype_prefix', \
+                  out='${out_dir}/sbayesrc', genoCHR='')"
+
 
     """
 }

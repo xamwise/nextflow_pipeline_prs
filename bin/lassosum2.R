@@ -55,10 +55,10 @@ NCORES <- nb_cores()
 cat("Using", NCORES, "cores\n")
 
 # Check if .rds file exists, if not create from .bed
-rds_file <- paste0(opt$bed, ".rds")
+rds_file <- paste0(opt$bed, "_lasso2.rds")
 if (!file.exists(rds_file)) {
   cat("Converting BED file to bigSNP format...\n")
-  snp_readBed(paste0(opt$bed, ".bed"))
+  snp_readBed(paste0(opt$bed, ".bed"), backingfile = paste0(opt$bed, "_lasso2"))
 }
 
 # Attach the genetic data
