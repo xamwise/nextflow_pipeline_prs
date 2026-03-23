@@ -1,5 +1,5 @@
-from numpy import log
 import pandas as pd
+import numpy as np
 
 import argparse
 
@@ -26,7 +26,7 @@ def main():
         effect_col = 'BETA'
     elif 'OR' in df.columns:
         effect_col = 'OR'
-        df[effect_col] = df[effect_col].apply(lambda x: log(x) if x != 0 else 0)
+        # df[effect_col] = np.log(df[effect_col].astype(float))  # Convert OR to log(OR) for effect size
     else:
         raise ValueError("No BETA or OR column found in input file.")
 
