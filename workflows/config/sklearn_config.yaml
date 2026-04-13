@@ -1,13 +1,13 @@
 # Configuration for Sklearn Models Pipeline
 
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
-input_plink_sklearn: /data/qc/EUR.QC  # PLINK file prefix
-input_phenotype_file: /data/raw/EUR/EUR.pheno  # Phenotype CSV file
+input_plink_sklearn: /data/qc/UKB_CRC.QC  # PLINK file prefix
+input_phenotype_file: /data/raw/UKB_CRC/UKB_CRC.pheno  # Phenotype CSV file
 
 # Data preprocessing
 data:
   input_format: 'h5'  # Use HDF5 format from DL pipeline
-  handle_missing: 'impute'  # impute, drop, zero
+  handle_missing: 'zero'  # impute, drop, zero
   imputation_strategy: 'mean'  # mean, median, most_frequent
   scaling: false
   scale_method: 'standard'  # standard, minmax, robust
@@ -67,7 +67,7 @@ models:
     n_trials: 50
   
   elasticnet:
-    enabled: false
+    enabled: true
     name: 'Elastic Net'
     optimize: true
     n_trials: 50

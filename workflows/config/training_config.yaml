@@ -2,7 +2,7 @@
 
 # Model configuration for PRS prediction
 model:
-  model_type: "mlp"  # Options: mlp, cnn, transformer, attention, bayesian/bnn
+  model_type: "cnn"  # Options: mlp, cnn, transformer, attention, bayesian/bnn, point_transformer, lstm
   
   # MLP specific parameters (recommended for PRS)
   hidden_dims: [1000, 250, 50]  # Deeper network for complex genetic patterns
@@ -17,21 +17,37 @@ model:
   fc_dims: [256, 128]
   
   # Transformer specific parameters (if model_type: transformer)
-  d_model: 256
+  d_model: 64
   n_heads: 8
   n_layers: 4
   d_ff: 1024
   
   # Attention specific parameters (if model_type: attention)
-  hidden_dim: 256
+  hidden_dim: 64
   attention_dim: 128
-  n_attention_heads: 4
+  n_attention_heads: 2
   
   # Bayesian Neural Network parameters (if model_type: bayesian/bnn)
-  # hidden_dims: [512, 256, 128]  # Smaller network due to uncertainty modeling
-  prior_var: 1.0  # Prior variance for weight distributions
-  n_samples: 10  # Number of forward passes for uncertainty estimation
-  kl_weight: 0.01  # Weight for KL divergence in ELBO loss
+  hidden_dims: [1024, 256, 64]  
+  compressed_dim: 512          # Deterministic compression before Bayesian layers
+  compressor_layers: 1
+  compressor_dropout: 0.1
+  prior_pi: 0.75               # Mixture weight for slab component
+  prior_sigma1: 1.0            # Slab std (broad)
+  prior_sigma2: 0.01          # Spike std (narrow, encourages sparsity)
+  init_log_var: -3.0           # Initial posterior log-variance
+  n_samples: 10                # MC forward passes for uncertainty estimation
+  kl_weight: 0.0             # KL multiplier (useful for warm-up schedules)
+  task: "binary"                 # 'binary' for disease phenotypes, 'regression' for quantitative traits
+
+  kl_warmup_epochs: 30        # Linear ramp from 0 → kl_weight
+  n_val_samples: 30            # MC samples for validation uncertainty
+
+ 
+  # LSTM specific parameters (if model_type: lstm)
+  hidden_dim: 256
+  n_layers: 2
+  dropout_rate: 0.3
 
 # Optimizer configuration
 optimizer:
@@ -52,9 +68,9 @@ scheduler:
   gamma: 0.1
 
 # Training parameters
-max_epochs: 5
-batch_size: 500
-num_workers: 4
+max_epochs: 50
+batch_size: 64
+num_workers: 5
 gradient_clip: 1.0
 
 # Loss function
@@ -74,7 +90,7 @@ augmentation_params:
 
 # Logging with Weights & Biases
 use_wandb: true  # Enable W&B logging
-wandb_project: "prs-prediction-A"
+wandb_project: "prs-prediction-crc"
 wandb_entity: null  # Set to your W&B username/team
 log_interval: 10
 save_checkpoint_interval: 5
@@ -83,6 +99,7 @@ save_checkpoint_interval: 5
 use_cuda: false
 cuda_deterministic: false
 seed: 42
+n_gpus: 1
 
 # Data preprocessing
 preprocessing:

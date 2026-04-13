@@ -179,7 +179,9 @@ def convert_plink_to_h5(
                 phenotypes.columns = ['phenotype']
         else:
             # If we have FID and IID columns, match with fam file order
-            if 'IID' in phenotypes_raw.columns or phenotypes_raw.shape[1] >= 2:
+            if 'IID' in phenotypes_raw.columns and phenotypes_raw.shape[1] >= 2:
+                
+
                 # Assume second column is IID if not named
                 if 'IID' not in phenotypes_raw.columns:
                     phenotypes_raw.columns = ['FID', 'IID'] + list(phenotypes_raw.columns[2:])
@@ -190,6 +192,7 @@ def convert_plink_to_h5(
                     'order': range(len(sample_info))
                 })
                 
+                
                 # Get phenotype column (last non-ID column)
                 pheno_cols = [c for c in phenotypes_raw.columns if c not in ['FID', 'IID']]
                 if pheno_cols:
@@ -197,6 +200,11 @@ def convert_plink_to_h5(
                 else:
                     pheno_col = 'phenotype'
                     phenotypes_raw['phenotype'] = phenotypes_raw.iloc[:, -1]
+                    
+                    
+                # Make sure IID columns are the same type for merging
+                phenotypes['IID'] = phenotypes['IID'].astype(str)
+                phenotypes_raw['IID'] = phenotypes_raw['IID'].astype(str)
                 
                 # Merge phenotypes
                 phenotypes = phenotypes.merge(

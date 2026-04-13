@@ -281,14 +281,23 @@ process GENERATE_REPORT {
     path "sklearn_pipeline_summary.pdf", emit: summary
     
     script:
-    def ensemble_arg = ensemble_performance.name != "none" ? "--ensemble ${ensemble_performance}" : ""
-    def features_arg = feature_importance.name != "none" ? "--features ${feature_importance}" : ""
+    // def ensemble_arg = ensemble_performance != "none" ? "--ensemble ${ensemble_performance}" : ""
+    // def features_arg = feature_importance != "none" ? "--features ${feature_importance}" : ""
+
+    // """
+    // python ${params.base_dir}/bin/sklearn/generate_report.py \
+    //     --comparison ${comparison_report} \
+    //     ${features_arg} \
+    //     --cv_results ${all_cv_results} \
+    //     ${ensemble_arg} \
+    //     --output_html sklearn_pipeline_report.html \
+    //     --output_pdf sklearn_pipeline_summary.pdf
+    // """
+
     """
     python ${params.base_dir}/bin/sklearn/generate_report.py \
         --comparison ${comparison_report} \
-        ${features_arg} \
         --cv_results ${all_cv_results} \
-        ${ensemble_arg} \
         --output_html sklearn_pipeline_report.html \
         --output_pdf sklearn_pipeline_summary.pdf
     """

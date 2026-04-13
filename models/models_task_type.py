@@ -15,8 +15,6 @@ from .transformer_model import TransformerModel
 from .attention_model import AttentionModel
 from .ensemble_model import GenotypeEnsembleModel
 from .bayesian_model import BayesianNeuralNetwork
-from .point_transformer import PointTransformerModel
-from .lstm_model import LSTMModel
 
 # Re-export models for convenience
 __all__ = [
@@ -26,10 +24,11 @@ __all__ = [
     'AttentionModel',
     'GenotypeEnsembleModel',
     'BayesianNeuralNetwork',
-    'PointTransformerModel',
-    'LSTMModel',
     'create_model'
 ]
+
+# Valid task types
+VALID_TASK_TYPES = {'regression', 'binary', 'multiclass'}
 
 
 def create_model(config: Dict[str, Any]) -> nn.Module:
@@ -38,28 +37,37 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
     
     Args:
         config: Model configuration dictionary containing:
-            - model_type: Type of model to create ('mlp', 'cnn', 'transformer', 'attention', 'lstm', 'bayesian', 'point_transformer')
+            - model_type: Type of model to create ('mlp', 'cnn', 'transformer', 'attention')
             - input_dim: Number of input features (SNPs)
             - output_dim: Number of output features (phenotypes)
+            - task_type: 'regression', 'binary', or 'multiclass'
             - Other model-specific parameters
             
     Returns:
         Initialized PyTorch model
         
     Raises:
-        ValueError: If unknown model type is specified
+        ValueError: If unknown model type or task type is specified
         
     Example:
         >>> config = {
         ...     'model_type': 'mlp',
         ...     'input_dim': 100000,
         ...     'output_dim': 1,
+        ...     'task_type': 'binary',
         ...     'hidden_dims': [1024, 512, 256],
         ...     'dropout_rate': 0.3
         ... }
         >>> model = create_model(config)
     """
     model_type = config.get('model_type', '').lower()
+    task_type = config.get('task_type', 'regression').lower()
+    
+    if task_type not in VALID_TASK_TYPES:
+        raise ValueError(
+            f"Unknown task_type: {task_type}. "
+            f"Available types: {', '.join(sorted(VALID_TASK_TYPES))}"
+        )
     
     # Extract common parameters
     input_dim = config.get('input_dim')
@@ -70,28 +78,30 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
     
     # Create model based on type
     if model_type == 'mlp':
-        return SimpleMLP(
+        model = SimpleMLP(
             input_dim=input_dim,
             output_dim=output_dim,
             hidden_dims=config.get('hidden_dims', [1024, 512, 256]),
             dropout_rate=config.get('dropout_rate', 0.3),
             activation=config.get('activation', 'relu'),
-            batch_norm=config.get('batch_norm', True)
+            batch_norm=config.get('batch_norm', True),
+            task_type=task_type
         )
     
     elif model_type == 'cnn':
-        return SimpleCNNModel(
+        model = SimpleCNNModel(
             input_dim=input_dim,
             output_dim=output_dim,
             channels=config.get('channels', [32, 64, 128]),
             kernel_sizes=config.get('kernel_sizes', [7, 5, 3]),
             pool_sizes=config.get('pool_sizes', [2, 2, 2]),
             fc_dims=config.get('fc_dims', [256, 128]),
-            dropout_rate=config.get('dropout_rate', 0.3)
+            dropout_rate=config.get('dropout_rate', 0.3),
+            task_type=task_type
         )
     
     elif model_type == 'transformer':
-        return TransformerModel(
+        model = TransformerModel(
             input_dim=input_dim,
             output_dim=output_dim,
             d_model=config.get('d_model', 256),
@@ -99,62 +109,40 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
             n_layers=config.get('n_layers', 4),
             d_ff=config.get('d_ff', 1024),
             dropout_rate=config.get('dropout_rate', 0.1),
-            max_seq_length=config.get('max_seq_length', max(10000, input_dim))
+            max_seq_length=config.get('max_seq_length', max(10000, input_dim)),
+            task_type=task_type
         )
     
     elif model_type == 'attention':
-        return AttentionModel(
+        model = AttentionModel(
             input_dim=input_dim,
             output_dim=output_dim,
             hidden_dim=config.get('hidden_dim', 256),
-            # attention_dim=config.get('attention_dim', 128),
+            attention_dim=config.get('attention_dim', 128),
             n_attention_heads=config.get('n_attention_heads', 4),
-            dropout_rate=config.get('dropout_rate', 0.3)
+            dropout_rate=config.get('dropout_rate', 0.3),
+            task_type=task_type
         )
     
     elif model_type == 'bayesian' or model_type == 'bnn':
-        return BayesianNeuralNetwork(
+        model = BayesianNeuralNetwork(
             input_dim=input_dim,
             output_dim=output_dim,
-            hidden_dims=config.get('hidden_dims', [256, 128]),
-            compressed_dim=config.get('compressed_dim', 512),
-            compressor_layers=config.get('compressor_layers', 1),
-            compressor_dropout=config.get('compressor_dropout', 0.1),
-            prior_pi=config.get('prior_pi', 0.5),
-            prior_sigma1=config.get('prior_sigma1', 1.0),
-            prior_sigma2=config.get('prior_sigma2', 0.002),
+            hidden_dims=config.get('hidden_dims', [512, 256, 128]),
+            prior_var=config.get('prior_var', 1.0),
             activation=config.get('activation', 'relu'),
-            n_samples=config.get('n_samples', 10),
-            task=config.get('task', 'binary'),
-            init_log_var=config.get('init_log_var', -3.0),
-        )
-    
-    elif model_type == 'point_transformer':
-        return PointTransformerModel(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            d_model=config.get('d_model', 256),
-            n_heads=config.get('n_heads', 8),
-            n_layers=config.get('n_layers', 4),
-            d_ff=config.get('d_ff', 1024),
             dropout_rate=config.get('dropout_rate', 0.1),
-            max_seq_length=config.get('max_seq_length', max(10000, input_dim))
-        )
-        
-    elif model_type == 'lstm':
-        return LSTMModel(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            hidden_dim=config.get('hidden_dim', 256),
-            n_layers=config.get('n_layers', 2),
-            dropout_rate=config.get('dropout_rate', 0.3)
+            n_samples=config.get('n_samples', 10),
+            task_type=task_type
         )
     
     else:
         raise ValueError(
             f"Unknown model type: {model_type}. "
-            f"Available types: mlp, cnn, transformer, attention, lstm, bayesian/bnn, point_transformer"
+            f"Available types: mlp, cnn, transformer, attention, bayesian/bnn"
         )
+    
+    return model
 
 
 def get_model_info(model_type: str) -> Dict[str, Any]:
@@ -162,7 +150,7 @@ def get_model_info(model_type: str) -> Dict[str, Any]:
     Get information about a specific model type.
     
     Args:
-        model_type: Type of model ('mlp', 'cnn', 'transformer', 'attention', 'lstm', 'point_transformer')
+        model_type: Type of model ('mlp', 'cnn', 'transformer', 'attention')
         
     Returns:
         Dictionary with model information including default parameters
@@ -231,26 +219,6 @@ def get_model_info(model_type: str) -> Dict[str, Any]:
                 'dropout_rate': 0.1,
                 'n_samples': 10
             }
-        },
-        'point_transformer': {
-            'class': PointTransformerModel,
-            'description': 'Point Transformer architecture for modeling SNP interactions',
-            'default_params': {
-                'd_model': 256,
-                'n_heads': 8,
-                'n_layers': 4,
-                'd_ff': 1024,
-                'dropout_rate': 0.1
-            }
-        },
-        'lstm': {
-            'class': LSTMModel,
-            'description': 'BiLSTM model for sequential SNP data',
-            'default_params': {
-                'hidden_dim': 256,
-                'n_layers': 2,
-                'dropout_rate': 0.3
-            }
         }
     }
     
@@ -267,4 +235,4 @@ def list_available_models() -> list:
     Returns:
         List of available model type strings
     """
-    return ['mlp', 'cnn', 'transformer', 'attention', 'lstm', 'bayesian', 'bnn', 'point_transformer']
+    return ['mlp', 'cnn', 'transformer', 'attention', 'bayesian', 'bnn']

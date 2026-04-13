@@ -160,7 +160,7 @@ def get_model(model_type, params, is_classification=False):
             'logistic': LogisticRegression,
             'ridge': RidgeClassifier,
             'lasso': lambda p: LogisticRegression(**{**p, 'penalty': 'l1', 'solver': 'liblinear'}),
-            'elasticnet': lambda p: LogisticRegression(**{**p, 'penalty': 'elasticnet', 'solver': 'saga'}),
+            'elasticnet': lambda p: LogisticRegression(**{**p, 'penalty': 'elasticnet', 'solver': 'saga', 'l1_ratio': p.get('l1_ratio', 0.5)}),
             'rf': RandomForestClassifier,
             'gbm': GradientBoostingClassifier,
             'xgboost': lambda p: xgb.XGBClassifier(**{**p, 'objective': 'binary:logistic'}),
@@ -278,6 +278,11 @@ def train_with_cv(X, y, model, cv_indices, is_classification=False):
         fold_scaler = StandardScaler()
         X_train_scaled = fold_scaler.fit_transform(X_train)
         X_val_scaled = fold_scaler.transform(X_val)
+        
+        
+        #### TEMPORARY: Disable scaling for tree-based models (XGBoost, LightGBM, CatBoost) and Random Forests ####
+        # X_train_scaled = X_train
+        # X_val_scaled = X_val
         
         # Determine model type from class name
         class_name = model.__class__.__name__

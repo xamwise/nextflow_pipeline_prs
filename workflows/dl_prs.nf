@@ -5,10 +5,10 @@ nextflow.enable.dsl=2
 
 // Pipeline parameters - no more hardcoded paths or nextflow.config dependency
 // params.base_dir = "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs"
-input_plink = "${params.base_dir}/data/qc/EUR.QC"
+input_plink = "${params.base_dir}/data/qc/UKB_CRC.QC"
 outdir = "${params.base_dir}/out"
 config = "${params.base_dir}/workflows/config/training_config.yaml"
-phenotype_file = "${params.base_dir}/data/raw/A/A.pheno"  // Optional, if phenotype not in PLINK
+phenotype_file = "${params.base_dir}/data/raw/UKB_CRC/UKB_CRC.pheno"  // Optional, if phenotype not in PLINK
 
 // Data reuse parameters (lessons from sklearn pipeline)
 params.data_reuse = [:]
@@ -23,9 +23,11 @@ params.n_folds = 5
 params.test_size = 0.2
 params.val_size = 0.1
 params.seed = 42
-params.max_epochs = 20
-params.batch_size = 500
+params.max_epochs = 50
+params.batch_size = 64
 params.learning_rate = 1e-5
+params.model_type = "standard"  // Options: bayesian, standard
+params.n_gpus = 1  // For multi-GPU training
 
 // Make hyperparameter optimization optional
 params.hyperopt = [:]
@@ -159,7 +161,11 @@ process TRAIN_KFOLD {
     script:
     def wandb_args = params.use_wandb ? 
         "--wandb_project ${params.wandb_project} --wandb_entity ${params.wandb_entity}" : ""
+
     """
+
+    echo "Training non-Bayesian model"
+
     python ${params.base_dir}/bin/train_model.py \
         --genotype_file ${genotype_data} \
         --phenotype_file ${phenotypes} \
@@ -174,6 +180,82 @@ process TRAIN_KFOLD {
         ${wandb_args}
     """
 }
+
+process TRAIN_KFOLD_BAYESIAN {
+    tag "fold_${fold}"
+    publishDir "${outdir}/models/fold_${fold}", mode: 'copy'
+    
+    input:
+    tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file)
+    
+    output:
+    tuple val(fold), path("model_fold_${fold}.pt"), emit: model
+    path "metrics_fold_${fold}.json", emit: metrics
+    path "training_log_fold_${fold}.csv", emit: log
+    
+    script:
+    def wandb_args = params.use_wandb ? 
+        "--wandb_project ${params.wandb_project} --wandb_entity ${params.wandb_entity}" : ""
+
+
+    """
+    echo "Training Bayesian Neural Network model"
+
+    python ${params.base_dir}/bin/train_model_wbayesian.py \
+        --genotype_file ${genotype_data} \
+        --phenotype_file ${phenotypes} \
+        --indices_file ${indices} \
+        --params_file ${params_file} \
+        --fold ${fold} \
+        --max_epochs ${params.max_epochs} \
+        --batch_size ${params.batch_size} \
+        --output_model model_fold_${fold}.pt \
+        --output_metrics metrics_fold_${fold}.json \
+        --output_log training_log_fold_${fold}.csv \
+        ${wandb_args}
+    """
+}
+
+
+process TRAIN_KFOLD_MULTI_GPU {
+    tag "fold_${fold}"
+    publishDir "${outdir}/models/fold_${fold}", mode: 'copy'
+    
+    input:
+    tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file)
+    
+    output:
+    tuple val(fold), path("model_fold_${fold}.pt"), emit: model
+    path "metrics_fold_${fold}.json", emit: metrics
+    path "training_log_fold_${fold}.csv", emit: log
+    
+    script:
+    def wandb_args = params.use_wandb ? 
+        "--wandb_project ${params.wandb_project} --wandb_entity ${params.wandb_entity}" : ""
+    def n_gpus = params.n_gpus ?: 1
+    def distributed_args = n_gpus > 1 ? "--distributed" : ""
+    def launcher = n_gpus > 1 ? "torchrun --nproc_per_node=${n_gpus}" : "python"
+
+    """
+    echo "Training model (${n_gpus} GPU(s))"
+
+    ${launcher} ${params.base_dir}/bin/train_model.py \
+        --genotype_file ${genotype_data} \
+        --phenotype_file ${phenotypes} \
+        --indices_file ${indices} \
+        --params_file ${params_file} \
+        --fold ${fold} \
+        --max_epochs ${params.max_epochs} \
+        --batch_size ${params.batch_size} \
+        --output_model model_fold_${fold}.pt \
+        --output_metrics metrics_fold_${fold}.json \
+        --output_log training_log_fold_${fold}.csv \
+        ${wandb_args} \
+        ${distributed_args}
+    """
+}
+
+
 
 process EVALUATE_MODELS {
     publishDir "${outdir}/evaluation", mode: 'copy'
@@ -269,12 +351,32 @@ workflow {
         .combine(splits_indices)
         .combine(params_to_use)
     
-    TRAIN_KFOLD(train_input)
+    if (params.model_type == "bayesian" || params.model_type == "bnn") {
+        TRAIN_KFOLD_BAYESIAN(train_input)
+
+
+        all_models = TRAIN_KFOLD_BAYESIAN.out.model.map { fold, model -> model }.collect()
+        all_metrics = TRAIN_KFOLD_BAYESIAN.out.metrics.collect()
+
+
+    } else {            
+
+        if (params.n_gpus > 1) {
+            TRAIN_KFOLD_MULTI_GPU(train_input)
+            all_models = TRAIN_KFOLD_MULTI_GPU.out.model.map { fold, model -> model }.collect()
+            all_metrics = TRAIN_KFOLD_MULTI_GPU.out.metrics.collect()
+
+        } else {
+            TRAIN_KFOLD(train_input)
+            all_models = TRAIN_KFOLD.out.model.map { fold, model -> model }.collect()
+            all_metrics = TRAIN_KFOLD.out.metrics.collect()
+        }
+    }
+
+
     
     // Step 6: Collect and evaluate
-    all_models = TRAIN_KFOLD.out.model.map { fold, model -> model }.collect()
-    all_metrics = TRAIN_KFOLD.out.metrics.collect()
-    
+  
     EVALUATE_MODELS(
         all_models,
         all_metrics,

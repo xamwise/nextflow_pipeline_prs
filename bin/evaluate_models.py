@@ -356,6 +356,7 @@ class PRSEvaluator:
         # Get predictions from all models
         all_model_predictions = []
         all_model_metrics = []
+        task_type = None
         
         for i, model in enumerate(self.models):
             predictions, targets, metrics = self.evaluate_single_model(model, test_loader)
@@ -398,12 +399,27 @@ class PRSEvaluator:
         }
         
         # Log to W&B
-        if self.use_wandb:
+        if task_type == 'regression':
             wandb.log({
                 'ensemble_r2': ensemble_metrics['r2'],
                 'ensemble_pearson_r': ensemble_metrics.get('pearson_r', 0),
                 'mean_fold_r2': np.mean([m['r2'] for m in all_model_metrics]),
                 'std_fold_r2': np.std([m['r2'] for m in all_model_metrics])
+            })
+        elif task_type == 'binary':
+            wandb.log({
+                'ensemble_accuracy': ensemble_metrics['accuracy'],
+                'ensemble_auc_roc': ensemble_metrics.get('auc_roc', 0),
+                'ensemble_nagelkerke_r2': ensemble_metrics.get('nagelkerke_r2', 0),
+                'mean_fold_accuracy': np.mean([m['accuracy'] for m in all_model_metrics]),
+                'std_fold_accuracy': np.std([m['accuracy'] for m in all_model_metrics])
+            })
+        elif task_type == 'multiclass':
+            wandb.log({
+                'ensemble_accuracy': ensemble_metrics['accuracy'],
+                'ensemble_f1': ensemble_metrics.get('f1', 0),
+                'mean_fold_accuracy': np.mean([m['accuracy'] for m in all_model_metrics]),
+                'std_fold_accuracy': np.std([m['accuracy'] for m in all_model_metrics])
             })
         
         return results
@@ -1067,14 +1083,33 @@ def main():
     
     with open(args.output_comparison, 'w') as f:
         json.dump(comparison, f, indent=2)
+        
+    # get task type for logging
+    task_type = results['ensemble_metrics'].get('task_type', 'regression')
+    
     
     # Final W&B logging
-    wandb.log({
-        'final_ensemble_r2': results['ensemble_metrics']['r2'],
-        'final_ensemble_pearson': results['ensemble_metrics'].get('pearson_r', 0),
-        'calibration_slope': results['ensemble_metrics'].get('calibration_slope', 1.0),
-        'expected_calibration_error': results['ensemble_metrics'].get('expected_calibration_error', 0)
-    })
+    if task_type == 'regression':
+        wandb.log({
+            'final_ensemble_r2': results['ensemble_metrics']['r2'],
+            'final_ensemble_pearson': results['ensemble_metrics'].get('pearson_r', 0),
+            'calibration_slope': results['ensemble_metrics'].get('calibration_slope', 1.0),
+            'expected_calibration_error': results['ensemble_metrics'].get('expected_calibration_error', 0)
+        })
+    elif task_type == 'binary':
+        wandb.log({
+            'final_ensemble_accuracy': results['ensemble_metrics']['accuracy'],
+            'final_ensemble_auc_roc': results['ensemble_metrics'].get('auc_roc', 0),
+            'final_ensemble_nagelkerke_r2': results['ensemble_metrics'].get('nagelkerke_r2', 0),
+            'final_ensemble_f1': results['ensemble_metrics'].get('f1', 0)
+        })
+    elif task_type == 'multiclass':
+        wandb.log({
+            'final_ensemble_accuracy': results['ensemble_metrics']['accuracy'],
+            'final_ensemble_f1': results['ensemble_metrics'].get('f1', 0),
+            'final_ensemble_precision': results['ensemble_metrics'].get('precision', 0),
+            'final_ensemble_recall': results['ensemble_metrics'].get('recall', 0)
+        })
     
     wandb.finish()
     logger.info("Evaluation completed successfully")

@@ -17,8 +17,6 @@ import sys
 import os
 
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report
-from torch.cuda.amp import autocast, GradScaler
-
 
 
 from nagelkerke_r2 import calculate_nagelkerke_r2
@@ -40,6 +38,7 @@ logger = logging.getLogger(__name__)
 class Trainer:
     """
     Trainer class for genotype models with comprehensive logging.
+    Supports standard and Bayesian neural networks.
     """
     
     def __init__(
@@ -51,23 +50,17 @@ class Trainer:
         output_dir: Path,
         use_wandb: bool = True
     ):
-        """
-        Initialize the trainer.
-        
-        Args:
-            model: PyTorch model to train
-            data_module: Data module with data loaders
-            config: Training configuration
-            fold: Current fold number
-            output_dir: Directory for outputs
-            use_wandb: Whether to use Weights & Biases logging
-        """
         self.model = model
         self.data_module = data_module
         self.config = config
         self.fold = fold
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Detect if model is Bayesian
+        self.is_bayesian = self._check_bayesian()
+        if self.is_bayesian:
+            logger.info("Bayesian model detected — using ELBO training loop")
         
         # Device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -77,14 +70,25 @@ class Trainer:
         # Optimizer
         self.optimizer = self._create_optimizer()
         
-        # Loss function
+        # Loss function (not used directly for Bayesian, but kept for validation reference)
         self.criterion = self._create_loss_function()
         
         # Learning rate scheduler
         self.scheduler = self._create_scheduler()
         
-        # Gradient scaler for mixed precision
-        self.scaler = GradScaler() if self.config.get('use_mixed_precision', False) else None
+        # Bayesian-specific config
+        if self.is_bayesian:
+            model_cfg = self.config.get('model', {})
+            self.kl_weight = model_cfg.get('kl_weight', 0.01)
+            self.kl_warmup_epochs = model_cfg.get('kl_warmup_epochs', 10)
+            self.n_val_samples = model_cfg.get('n_val_samples', 30)
+            self.n_datapoints = self._count_training_samples()
+            logger.info(
+                f"Bayesian config: kl_weight={self.kl_weight}, "
+                f"kl_warmup_epochs={self.kl_warmup_epochs}, "
+                f"n_datapoints={self.n_datapoints}, "
+                f"n_val_samples={self.n_val_samples}"
+            )
         
         # Setup logging with W&B
         self.setup_logging(use_wandb)
@@ -99,50 +103,56 @@ class Trainer:
             'train_metrics': [],
             'val_metrics': []
         }
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _check_bayesian(self) -> bool:
+        """Check whether the model is a BayesianNeuralNetwork."""
+        from models.bayesian_model import BayesianNeuralNetwork
+        return isinstance(self.model, BayesianNeuralNetwork)
+
+    def _count_training_samples(self) -> int:
+        """Count total training samples for correct KL scaling."""
+        loader = self.data_module.train_dataloader(self.fold)
+        return len(loader.dataset)
+
+    def _get_kl_weight_for_epoch(self) -> float:
+        """Linear KL warm-up: ramp from 0 → kl_weight over kl_warmup_epochs."""
+        if self.kl_warmup_epochs <= 0:
+            return self.kl_weight
+        progress = min(1.0, self.current_epoch / self.kl_warmup_epochs)
+        return self.kl_weight * progress
         
     def _detect_task_type(self, phenotypes: torch.Tensor) -> str:
-        """
-        Detect task type based on phenotype data.
-        
-        Returns:
-            'binary', 'multiclass', or 'regression'
-        """
         unique_values = torch.unique(phenotypes)
         n_unique = len(unique_values)
-        
-        # Check if all values are integers and in a small range
         if torch.all(phenotypes == phenotypes.long()):
             if n_unique == 2:
                 return 'binary'
-            elif n_unique <= 20:  # Configurable threshold
+            elif n_unique <= 20:
                 return 'multiclass' 
-        
         return 'regression'
         
-    
     def _create_optimizer(self) -> optim.Optimizer:
-        """Create optimizer based on configuration."""
         opt_config = self.config['optimizer']
         opt_type = opt_config['type'].lower()
-        
         params = self.model.parameters()
         
         if opt_type == 'adam':
             return optim.Adam(
-                params,
-                lr=opt_config['lr'],
+                params, lr=opt_config['lr'],
                 weight_decay=opt_config.get('weight_decay', 0)
             )
         elif opt_type == 'adamw':
             return optim.AdamW(
-                params,
-                lr=opt_config['lr'],
+                params, lr=opt_config['lr'],
                 weight_decay=opt_config.get('weight_decay', 0.01)
             )
         elif opt_type == 'sgd':
             return optim.SGD(
-                params,
-                lr=opt_config['lr'],
+                params, lr=opt_config['lr'],
                 momentum=opt_config.get('momentum', 0.9),
                 weight_decay=opt_config.get('weight_decay', 0)
             )
@@ -150,10 +160,7 @@ class Trainer:
             raise ValueError(f"Unknown optimizer type: {opt_type}")
         
     def _create_loss_function(self) -> nn.Module:
-        """Create loss function based on task type and configuration."""
-        # Auto-detect task type if not specified
         if not hasattr(self, 'task_type'):
-            # Get a sample from the data to detect task type
             sample_loader = self.data_module.train_dataloader(self.fold)
             _, sample_phenotypes = next(iter(sample_loader))
             self.task_type = self._detect_task_type(sample_phenotypes)
@@ -166,10 +173,9 @@ class Trainer:
                 return nn.BCEWithLogitsLoss()
             elif self.task_type == 'multiclass':
                 return nn.CrossEntropyLoss()
-            else:  # regression
+            else:
                 return nn.MSELoss()
         
-        # Manual selection (existing code)
         if loss_type == 'mse':
             return nn.MSELoss()
         elif loss_type == 'mae':
@@ -182,7 +188,6 @@ class Trainer:
             raise ValueError(f"Unknown loss function: {loss_type}")
     
     def _create_scheduler(self) -> Optional[object]:
-        """Create learning rate scheduler."""
         if 'scheduler' not in self.config:
             return None
         
@@ -197,13 +202,11 @@ class Trainer:
             )
         elif sched_type == 'cosine':
             return optim.lr_scheduler.CosineAnnealingLR(
-                self.optimizer,
-                T_max=self.config['max_epochs']
+                self.optimizer, T_max=self.config['max_epochs']
             )
         elif sched_type == 'reduce_on_plateau':
             return optim.lr_scheduler.ReduceLROnPlateau(
-                self.optimizer,
-                mode='min',
+                self.optimizer, mode='min',
                 patience=sched_config.get('patience', 10),
                 factor=sched_config.get('factor', 0.1)
             )
@@ -211,8 +214,6 @@ class Trainer:
             return None
     
     def setup_logging(self, use_wandb: bool):
-        """Setup logging with W&B only."""
-        # Weights & Biases
         self.use_wandb = use_wandb
         if use_wandb:
             wandb.init(
@@ -221,136 +222,137 @@ class Trainer:
                 name=f"fold_{self.fold}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
                 config=self.config,
                 reinit=True,
-                tags=["training", f"fold_{self.fold}", "prs"]
+                tags=["training", f"fold_{self.fold}", "prs",
+                      *(["bayesian"] if self.is_bayesian else [])]
             )
             wandb.watch(self.model, log='all', log_freq=100)
         
-        # CSV logger for backup
         self.csv_log_path = self.output_dir / f'training_log_fold_{self.fold}.csv'
         
     def calculate_nagelkerke_r2(self, predictions: np.ndarray, targets: np.ndarray) -> float:
-        """Calculate Nagelkerke R2 for binary classification."""
         return calculate_nagelkerke_r2(predictions, targets)
+
+    # ------------------------------------------------------------------
+    # Training loops
+    # ------------------------------------------------------------------
     
     def train_epoch(self) -> Tuple[float, Dict[str, float]]:
-        """
-        Train for one epoch.
-        
-        Returns:
-            Tuple of (average loss, metrics dictionary)
-        """
         self.model.train()
+        if self.is_bayesian:
+            self.model.set_sampling(True)
+
         train_loader = self.data_module.train_dataloader(self.fold)
         
-        total_loss = 0
+        total_loss = 0.0
+        total_nll = 0.0
+        total_kl = 0.0
         all_predictions = []
         all_targets = []
+        
+        current_kl_weight = self._get_kl_weight_for_epoch() if self.is_bayesian else 0.0
         
         pbar = tqdm(train_loader, desc=f'Training Epoch {self.current_epoch}')
         for batch_idx, (genotypes, phenotypes) in enumerate(pbar):
             genotypes = genotypes.to(self.device)
             phenotypes = phenotypes.to(self.device)
             
-            # Forward pass
             self.optimizer.zero_grad()
-            predictions = self.model(genotypes)
-            loss = self.criterion(predictions, phenotypes)
-            
-            # Backward pass
+
+            if self.is_bayesian:
+                loss, nll, kl, preds = self._bayesian_train_step(
+                    genotypes, phenotypes, current_kl_weight
+                )
+                total_nll += nll
+                total_kl += kl
+            else:
+                predictions = self.model(genotypes)
+                loss = self.criterion(predictions, phenotypes)
+                preds = predictions
+
             loss.backward()
             
-            # Gradient clipping
             if 'gradient_clip' in self.config:
                 nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config['gradient_clip']
+                    self.model.parameters(), self.config['gradient_clip']
                 )
             
             self.optimizer.step()
             
-            # Logging
             total_loss += loss.item()
-            all_predictions.append(predictions.detach().cpu())
+            all_predictions.append(preds.detach().cpu())
             all_targets.append(phenotypes.detach().cpu())
             
-            # Update progress bar
-            pbar.set_postfix({'loss': loss.item()})
+            postfix = {'loss': loss.item()}
+            if self.is_bayesian:
+                postfix['nll'] = nll
+                postfix['kl'] = kl
+            pbar.set_postfix(postfix)
             
-            # Log to W&B
             if self.use_wandb and batch_idx % 10 == 0:
                 global_step = self.current_epoch * len(train_loader) + batch_idx
-                wandb.log({'train/batch_loss': loss.item(), 'global_step': global_step})
+                log_dict = {'train/batch_loss': loss.item(), 'global_step': global_step}
+                if self.is_bayesian:
+                    log_dict['train/batch_nll'] = nll
+                    log_dict['train/batch_kl'] = kl
+                    log_dict['train/kl_weight'] = current_kl_weight
+                wandb.log(log_dict)
         
-        # Calculate metrics
-        avg_loss = total_loss / len(train_loader)
+        n_batches = len(train_loader)
+        avg_loss = total_loss / n_batches
         all_predictions = torch.cat(all_predictions)
         all_targets = torch.cat(all_targets)
         metrics = self.calculate_metrics(all_predictions, all_targets)
+
+        if self.is_bayesian:
+            metrics['avg_nll'] = total_nll / n_batches
+            metrics['avg_kl'] = total_kl / n_batches
+            metrics['kl_weight'] = current_kl_weight
         
         return avg_loss, metrics
-    
-    
-    #### GPU Training with Mixed Precision (Optional) - Uncomment if needed ####
-    
-    # def train_epoch(self) -> Tuple[float, Dict[str, float]]:
-    #     self.model.train()
-    #     train_loader = self.data_module.train_dataloader(self.fold)
-    #     accum_steps = self.config.get('gradient_accumulation_steps', 1)
 
-    #     total_loss = 0
-    #     all_predictions = []
-    #     all_targets = []
+    def _bayesian_train_step(
+        self,
+        genotypes: torch.Tensor,
+        phenotypes: torch.Tensor,
+        kl_weight: float,
+    ) -> Tuple[torch.Tensor, float, float, torch.Tensor]:
+        """Single training step for BNN. Returns (loss, nll_value, kl_value, predictions)."""
+        output = self.model(genotypes)
 
-    #     pbar = tqdm(train_loader, desc=f'Training Epoch {self.current_epoch}')
-    #     for batch_idx, (genotypes, phenotypes) in enumerate(pbar):
-    #         genotypes = genotypes.to(self.device)
-    #         phenotypes = phenotypes.to(self.device)
+        if self.model.task == 'regression':
+            pred_mean, pred_log_var = output
+            loss = self.model.elbo_loss(
+                pred_mean, phenotypes,
+                n_datapoints=self.n_datapoints,
+                kl_weight=kl_weight,
+                pred_log_var=pred_log_var,
+            )
+            preds = pred_mean
+        else:
+            # binary: output is logits
+            logits = output
+            loss = self.model.elbo_loss(
+                logits, phenotypes,
+                n_datapoints=self.n_datapoints,
+                kl_weight=kl_weight,
+            )
+            preds = logits
 
-    #         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-    #             predictions = self.model(genotypes)
-    #             loss = self.criterion(predictions, phenotypes) / accum_steps
+        kl_val = self.model.get_kl_divergence().item()
+        nll_val = (loss - (kl_weight / self.n_datapoints) * kl_val)
+        # nll_val is approximate; compute cleanly
+        nll_val = loss.item() - (kl_weight / self.n_datapoints) * kl_val
 
-    #         self.scaler.scale(loss).backward()
-
-    #         if (batch_idx + 1) % accum_steps == 0:
-    #             if 'gradient_clip' in self.config:
-    #                 self.scaler.unscale_(self.optimizer)
-    #                 nn.utils.clip_grad_norm_(
-    #                     self.model.parameters(),
-    #                     self.config['gradient_clip']
-    #                 )
-    #             self.scaler.step(self.optimizer)
-    #             self.scaler.update()
-    #             self.optimizer.zero_grad()
-
-    #         total_loss += loss.item() * accum_steps
-    #         all_predictions.append(predictions.detach().float().cpu())
-    #         all_targets.append(phenotypes.detach().cpu())
-
-    #         pbar.set_postfix({'loss': loss.item() * accum_steps})
-
-    #         if self.use_wandb and batch_idx % 10 == 0:
-    #             global_step = self.current_epoch * len(train_loader) + batch_idx
-    #             wandb.log({'train/batch_loss': loss.item() * accum_steps, 'global_step': global_step})
-
-    #     avg_loss = total_loss / len(train_loader)
-    #     all_predictions = torch.cat(all_predictions)
-    #     all_targets = torch.cat(all_targets)
-    #     metrics = self.calculate_metrics(all_predictions, all_targets)
-
-    #     return avg_loss, metrics
+        return loss, nll_val, kl_val, preds
     
     def validate(self) -> Tuple[float, Dict[str, float]]:
-        """
-        Validate the model.
-        
-        Returns:
-            Tuple of (average loss, metrics dictionary)
-        """
         self.model.eval()
+        if self.is_bayesian:
+            self.model.set_sampling(False)
+
         val_loader = self.data_module.val_dataloader(self.fold)
         
-        total_loss = 0
+        total_loss = 0.0
         all_predictions = []
         all_targets = []
         
@@ -358,47 +360,109 @@ class Trainer:
             for genotypes, phenotypes in tqdm(val_loader, desc='Validation'):
                 genotypes = genotypes.to(self.device)
                 phenotypes = phenotypes.to(self.device)
-                
-                predictions = self.model(genotypes)
-                loss = self.criterion(predictions, phenotypes)
+
+                if self.is_bayesian:
+                    # Deterministic forward (mean weights) for stable val loss
+                    output = self.model(genotypes)
+                    if self.model.task == 'regression':
+                        pred_mean, pred_log_var = output
+                        loss = self.criterion(pred_mean, phenotypes)
+                        preds = pred_mean
+                    else:
+                        logits = output
+                        loss = self.criterion(logits, phenotypes)
+                        preds = logits
+                else:
+                    preds = self.model(genotypes)
+                    loss = self.criterion(preds, phenotypes)
                 
                 total_loss += loss.item()
-                all_predictions.append(predictions.cpu())
+                all_predictions.append(preds.cpu())
                 all_targets.append(phenotypes.cpu())
         
-        # Calculate metrics
         avg_loss = total_loss / len(val_loader)
         all_predictions = torch.cat(all_predictions)
         all_targets = torch.cat(all_targets)
         metrics = self.calculate_metrics(all_predictions, all_targets)
+
+        # Bayesian: run MC uncertainty estimation on val set periodically
+        if self.is_bayesian and (self.current_epoch + 1) % 5 == 0:
+            unc_metrics = self._evaluate_uncertainty(val_loader)
+            metrics.update(unc_metrics)
         
         return avg_loss, metrics
+
+    def _evaluate_uncertainty(
+        self, val_loader: torch.utils.data.DataLoader
+    ) -> Dict[str, float]:
+        """Run MC sampling on validation set and report uncertainty diagnostics."""
+        self.model.set_sampling(True)
+
+        all_means, all_ep, all_al, all_targets = [], [], [], []
+        with torch.no_grad():
+            for genotypes, phenotypes in val_loader:
+                genotypes = genotypes.to(self.device)
+                mean, ep_std, al_std = self.model.predict_with_uncertainty(
+                    genotypes, n_samples=self.n_val_samples
+                )
+                all_means.append(mean.cpu())
+                all_ep.append(ep_std.cpu())
+                all_al.append(al_std.cpu())
+                all_targets.append(phenotypes)
+
+        means = torch.cat(all_means)
+        ep = torch.cat(all_ep)
+        al = torch.cat(all_al)
+        targets = torch.cat(all_targets)
+
+        metrics = {
+            'epistemic_std_mean': ep.mean().item(),
+            'epistemic_std_median': ep.median().item(),
+            'aleatoric_std_mean': al.mean().item(),
+        }
+
+        # Coverage calibration (regression only)
+        if self.model.task == 'regression':
+            total_std = torch.sqrt(ep ** 2 + al ** 2 + 1e-8)
+            errors = (means - targets).abs()
+            for level in [0.5, 0.9, 0.95]:
+                from scipy.stats import norm as _norm
+                z = _norm.ppf(0.5 + level / 2.0)
+                covered = (errors < z * total_std).float().mean().item()
+                metrics[f'coverage_{int(level*100)}'] = covered
+
+        # Uncertainty-error correlation (should be positive if well-calibrated)
+        errors_np = (means - targets).abs().numpy().flatten()
+        ep_np = ep.numpy().flatten()
+        if len(errors_np) > 2:
+            from scipy.stats import spearmanr
+            corr, _ = spearmanr(ep_np, errors_np)
+            metrics['uncertainty_error_spearman'] = float(corr)
+
+        self.model.set_sampling(False)
+        return metrics
     
     def calculate_metrics(
         self,
         predictions: torch.Tensor,
         targets: torch.Tensor
     ) -> Dict[str, float]:
-        """Calculate evaluation metrics based on task type."""
         predictions_np = predictions.numpy()
         targets_np = targets.numpy()
         
         metrics = {}
         
         if self.task_type == 'regression':
-            # Regression metrics (existing code)
             mse = np.mean((predictions_np - targets_np) ** 2)
             metrics['mse'] = float(mse)
             metrics['rmse'] = float(np.sqrt(mse))
             metrics['mae'] = float(np.mean(np.abs(predictions_np - targets_np)))
             
-            # R-squared
             ss_res = np.sum((targets_np - predictions_np) ** 2)
             ss_tot = np.sum((targets_np - np.mean(targets_np)) ** 2)
             r2 = 1 - (ss_res / (ss_tot + 1e-8))
             metrics['r2'] = float(r2)
             
-            # Correlations
             from scipy.stats import pearsonr, spearmanr
             if predictions_np.size > 1:
                 corr, p_val = pearsonr(predictions_np.flatten(), targets_np.flatten())
@@ -406,32 +470,22 @@ class Trainer:
                 metrics['pearson_p'] = float(p_val)
         
         elif self.task_type == 'binary':
-            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
-
-            
-            # Convert logits to probabilities and predictions
             probs = torch.sigmoid(torch.tensor(predictions_np)).numpy()
             pred_labels = (probs > 0.5).astype(int)
-            targets_flat = targets_np.flatten()
             
             metrics['accuracy'] = float(accuracy_score(targets_np, pred_labels))
             metrics['precision'] = float(precision_score(targets_np, pred_labels, average='binary', zero_division=0))
             metrics['recall'] = float(recall_score(targets_np, pred_labels, average='binary', zero_division=0))
             metrics['f1'] = float(f1_score(targets_np, pred_labels, average='binary', zero_division=0))
             
-            # AUC-ROC
             try:
                 metrics['auc_roc'] = float(roc_auc_score(targets_np, probs))
             except ValueError:
                 metrics['auc_roc'] = 0.0
                 
             metrics['nagelkerke_r2'] = self.calculate_nagelkerke_r2(predictions_np, targets_np)
-
         
         elif self.task_type == 'multiclass':
-            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-            
-            # Convert to class predictions
             pred_labels = np.argmax(predictions_np, axis=1)
             
             metrics['accuracy'] = float(accuracy_score(targets_np, pred_labels))
@@ -442,15 +496,13 @@ class Trainer:
         return metrics
     
     def train(self, max_epochs: int):
-        """
-        Train the model for multiple epochs.
+        logger.info(f"Starting training for fold {self.fold} — Task type: {self.task_type}")
+        if self.is_bayesian:
+            logger.info(
+                f"Bayesian training: n_datapoints={self.n_datapoints}, "
+                f"kl_warmup={self.kl_warmup_epochs} epochs"
+            )
         
-        Args:
-            max_epochs: Maximum number of epochs to train
-        """
-        logger.info(f"Starting training for fold {self.fold} - Task type: {self.task_type}")
-        
-            # Determine primary metric for model selection
         if self.task_type == 'regression':
             primary_metric = 'r2'
             best_metric_value = -float('inf')
@@ -459,60 +511,89 @@ class Trainer:
             primary_metric = 'auc_roc'
             best_metric_value = -float('inf') 
             metric_improved = lambda new, best: new > best
-        else:  # multiclass
+        else:
             primary_metric = 'accuracy'
             best_metric_value = -float('inf')
             metric_improved = lambda new, best: new > best
         
-        
         for epoch in range(max_epochs):
             self.current_epoch = epoch
             
-            # Training
             train_loss, train_metrics = self.train_epoch()
-            
-            # Validation
             val_loss, val_metrics = self.validate()
             
-            # Learning rate scheduling
             if self.scheduler is not None:
                 if isinstance(self.scheduler, optim.lr_scheduler.ReduceLROnPlateau):
                     self.scheduler.step(val_loss)
                 else:
                     self.scheduler.step()
             
-            # Logging
             self.log_epoch(train_loss, train_metrics, val_loss, val_metrics)
             
-            # Save best model
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
                 self.save_checkpoint(is_best=True)
                 logger.info(f"New best model saved with validation loss: {val_loss:.4f}")
             
-            # Also track best Metric
             current_metric = val_metrics.get(primary_metric, 0)
             if metric_improved(current_metric, best_metric_value):
                 best_metric_value = current_metric
                 self.save_checkpoint(is_best=True, metric=primary_metric)
                 logger.info(f"New best model saved with {primary_metric}: {current_metric:.4f}")
             
-            # Early stopping
             if self.check_early_stopping(val_loss):
                 logger.info(f"Early stopping triggered at epoch {epoch}")
                 break
         
-        # Save final model
         self.save_checkpoint(is_best=False, final=True)
-        
-        # Save training history
+
+        # Final uncertainty calibration for Bayesian models
+        if self.is_bayesian:
+            self._final_bayesian_report()
+
         self.save_training_history()
         
-        # Finish W&B run
         if self.use_wandb:
             wandb.finish()
         
         logger.info(f"Training completed for fold {self.fold}")
+
+    def _final_bayesian_report(self):
+        """Run full calibration and weight diagnostics at end of training."""
+        logger.info("Running final Bayesian diagnostics...")
+
+        # Weight statistics
+        weight_stats = self.model.get_weight_statistics()
+        logger.info(f"Weight statistics: {json.dumps(weight_stats, indent=2)}")
+
+        stats_path = self.output_dir / f'bayesian_weight_stats_fold_{self.fold}.json'
+        with open(stats_path, 'w') as f:
+            json.dump(weight_stats, f, indent=2)
+
+        # Full calibration on validation set
+        if self.model.task == 'regression':
+            val_loader = self.data_module.val_dataloader(self.fold)
+            cal = self.model.calibrate_uncertainty(
+                val_loader, n_samples=50, device=self.device
+            )
+            logger.info(f"Calibration: {cal}")
+            cal_path = self.output_dir / f'bayesian_calibration_fold_{self.fold}.json'
+            with open(cal_path, 'w') as f:
+                json.dump(cal, f, indent=2)
+
+            if self.use_wandb:
+                for level, cov in cal['coverage'].items():
+                    wandb.log({f'calibration/coverage_{int(float(level)*100)}': cov})
+                wandb.log({
+                    'calibration/mean_epistemic_std': cal['mean_epistemic_std'],
+                    'calibration/mean_aleatoric_std': cal['mean_aleatoric_std'],
+                })
+
+        if self.use_wandb:
+            for layer_name, lstats in weight_stats.items():
+                for k, v in lstats.items():
+                    if isinstance(v, (int, float)):
+                        wandb.log({f'weights/{layer_name}/{k}': v})
     
     def log_epoch(
         self,
@@ -521,33 +602,40 @@ class Trainer:
         val_loss: float,
         val_metrics: Dict[str, float]
     ):
-        """Log epoch results to W&B and CSV."""
-        # Console logging
         if self.task_type == 'regression':
             key_metrics = f"R²: {val_metrics.get('r2', 0):.4f}, Pearson r: {val_metrics.get('pearson_r', 0):.4f}"
         elif self.task_type == 'binary':
             key_metrics = f"Accuracy: {val_metrics.get('accuracy', 0):.4f}, AUC: {val_metrics.get('auc_roc', 0):.4f}"
-        else:  # multiclass
+        else:
             key_metrics = f"Accuracy: {val_metrics.get('accuracy', 0):.4f}, F1: {val_metrics.get('f1', 0):.4f}"
         
+        extra = ""
+        if self.is_bayesian:
+            extra = (
+                f", NLL: {train_metrics.get('avg_nll', 0):.4f}, "
+                f"KL: {train_metrics.get('avg_kl', 0):.2f}, "
+                f"KL_w: {train_metrics.get('kl_weight', 0):.4f}"
+            )
+            if 'epistemic_std_mean' in val_metrics:
+                extra += f", Ep.Std: {val_metrics['epistemic_std_mean']:.4f}"
+
         logger.info(
             f"Epoch {self.current_epoch}: "
             f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, "
-            f"{key_metrics}"
+            f"{key_metrics}{extra}"
         )
         
-        # Weights & Biases
         if self.use_wandb:
-            wandb.log({
+            log_dict = {
                 'epoch': self.current_epoch,
                 'train/loss': train_loss,
                 'val/loss': val_loss,
                 **{f'train/{k}': v for k, v in train_metrics.items()},
                 **{f'val/{k}': v for k, v in val_metrics.items()},
                 'learning_rate': self.optimizer.param_groups[0]['lr']
-            })
+            }
+            wandb.log(log_dict)
         
-        # CSV logging
         log_data = {
             'epoch': self.current_epoch,
             'train_loss': train_loss,
@@ -562,23 +650,12 @@ class Trainer:
         else:
             df.to_csv(self.csv_log_path, index=False)
         
-        # Update training history
         self.training_history['train_loss'].append(train_loss)
         self.training_history['val_loss'].append(val_loss)
         self.training_history['train_metrics'].append(train_metrics)
         self.training_history['val_metrics'].append(val_metrics)
     
     def check_early_stopping(self, val_loss: float, patience: int = 20) -> bool:
-        """
-        Check if early stopping should be triggered.
-        
-        Args:
-            val_loss: Current validation loss
-            patience: Number of epochs to wait
-            
-        Returns:
-            True if training should stop
-        """
         if 'early_stopping' not in self.config:
             return False
         
@@ -593,7 +670,6 @@ class Trainer:
         return self.patience_counter >= patience
     
     def save_checkpoint(self, is_best: bool = False, final: bool = False, metric: str = 'loss'):
-        """Save model checkpoint."""
         if is_best:
             if metric == 'r2':
                 path = self.output_dir / f'best_model_r2_fold_{self.fold}.pt'
@@ -611,7 +687,8 @@ class Trainer:
             'best_val_loss': self.best_val_loss,
             'best_val_r2': self.best_val_r2,
             'config': self.config,
-            'training_history': self.training_history
+            'training_history': self.training_history,
+            'is_bayesian': self.is_bayesian,
         }
         
         if self.scheduler is not None:
@@ -621,19 +698,18 @@ class Trainer:
         logger.info(f"Checkpoint saved to {path}")
     
     def save_training_history(self):
-        """Save training history to JSON file."""
         history_path = self.output_dir / f'training_history_fold_{self.fold}.json'
         with open(history_path, 'w') as f:
             json.dump(self.training_history, f, indent=2)
         
-        # Also save metrics summary
         metrics_summary = {
             'best_val_loss': float(self.best_val_loss),
             'best_val_r2': float(self.best_val_r2),
             'final_train_loss': float(self.training_history['train_loss'][-1]),
             'final_val_loss': float(self.training_history['val_loss'][-1]),
             'final_val_metrics': self.training_history['val_metrics'][-1],
-            'total_epochs': len(self.training_history['train_loss'])
+            'total_epochs': len(self.training_history['train_loss']),
+            'is_bayesian': self.is_bayesian,
         }
         
         summary_path = self.output_dir / f'metrics_fold_{self.fold}.json'
@@ -658,18 +734,15 @@ def main():
     
     args = parser.parse_args()
     
-    # Load configuration
     with open(args.params_file, 'r') as f:
         config = yaml.safe_load(f)
     
-    # Update config with command line arguments
     config['max_epochs'] = args.max_epochs
     config['batch_size'] = args.batch_size
     config['use_wandb'] = True
     config['wandb_project'] = args.wandb_project
     config['wandb_entity'] = args.wandb_entity
     
-    # Create data module
     data_module = GenotypeDataModule(
         h5_file=args.genotype_file,
         phenotype_file=args.phenotype_file,
@@ -680,18 +753,16 @@ def main():
         augmentation_params=config.get('augmentation_params', {})
     )
     
-    # Get dimensions
     input_dim = data_module.get_input_dim()
     output_dim = data_module.get_output_dim()
     
-    # Create model
     model_config = config['model']
     model_config['input_dim'] = input_dim
     model_config['output_dim'] = output_dim
     
     logger.info(f"Model configuration: {model_config}")
+    logger.info(f"Complete configuration: {config}")
     
-    # Auto-detect task type if not specified
     if 'task_type' not in model_config:
         sample_loader = data_module.train_dataloader(args.fold)
         _, sample_phenotypes = next(iter(sample_loader))
@@ -702,10 +773,8 @@ def main():
     
     model = create_model(model_config)
         
-    # Create output directory
     output_dir = Path(args.output_model).parent
     
-    # Create trainer
     trainer = Trainer(
         model=model,
         data_module=data_module,
@@ -715,17 +784,14 @@ def main():
         use_wandb=config.get('use_wandb', True)
     )
     
-    # Train model
     trainer.train(args.max_epochs)
     
-    # Copy final model to expected output path
     import shutil
     final_model = output_dir / f'final_model_fold_{args.fold}.pt'
     best_model = output_dir / f'best_model_fold_{args.fold}.pt'
     source = best_model if best_model.exists() else final_model
     shutil.copy(str(source), args.output_model)
-        
-    
+
 
 if __name__ == '__main__':
     main()

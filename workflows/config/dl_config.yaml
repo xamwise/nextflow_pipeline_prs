@@ -2,8 +2,10 @@
 
 # Base paths
 base_dir: "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs"
-input_plink: "${base_dir}/data/raw/test/test"
-phenotype_file: "/data/raw/test/phenotype_A.phen"  # Optional, if not in PLINK
+input_plink: "${base_dir}/data/raw/UKB_CRC/UKB_CRC"  # PLINK file prefix
+phenotype_file: "/data/raw/UKB_CRC/UKB_CRC.pheno"  # Optional, if not in PLINK
+
+model_type: "bayesian"  # Options: bayesian, standard
 
 # Data reuse configuration
 data_reuse:
@@ -18,8 +20,8 @@ n_folds: 5
 test_size: 0.2
 val_size: 0.1
 seed: 42
-max_epochs: 20
-batch_size: 500
+max_epochs: 50
+batch_size: 64
 learning_rate: 0.0001  # 1e-5
 
 # Hyperparameter optimization
@@ -28,8 +30,8 @@ hyperopt:
   n_trials: 20
 
 # Weights & Biases configuration
-use_wandb: false
-wandb_project: "prs-prediction-DL"
+use_wandb: true
+wandb_project: "prs-prediction-crc"
 wandb_entity: ""
 
 # Optional features
