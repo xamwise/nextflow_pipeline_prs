@@ -830,7 +830,7 @@ class PRSEvaluator:
         
         fig.add_trace(
             go.Heatmap(
-                z=cm, x=['Pred 0', 'Pred 1'], y=['True 1', 'True 0'],
+                z=cm, x=['Pred 0', 'Pred 1'], y=['True 0', 'True 1'],
                 colorscale='Blues', showscale=True,
                 text=cm, texttemplate='%{text}', textfont={"size": 16}
             ),
