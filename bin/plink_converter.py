@@ -47,22 +47,25 @@ def convert_plink_to_h5(
     
     # pandas-plink should return (n_samples, n_snps)
     # If we have more rows than columns, it's likely transposed
-    if genotypes.shape[0] > genotypes.shape[1]:
-        logger.info(f"Detected possible transposition: {genotypes.shape[0]} rows > {genotypes.shape[1]} columns")
-        # Check against fam and bim files to determine correct orientation
-        n_samples_expected = len(sample_info)
-        n_snps_expected = len(snp_info)
+    
+    # if genotypes.shape[0] > genotypes.shape[1]:
+    #     logger.info(f"Detected possible transposition: {genotypes.shape[0]} rows > {genotypes.shape[1]} columns")
+    
+    # Check against fam and bim files to determine correct orientation
         
-        logger.info(f"Expected from .fam file: {n_samples_expected} samples")
-        logger.info(f"Expected from .bim file: {n_snps_expected} SNPs")
+    n_samples_expected = len(sample_info)
+    n_snps_expected = len(snp_info)
+    
+    logger.info(f"Expected from .fam file: {n_samples_expected} samples")
+    logger.info(f"Expected from .bim file: {n_snps_expected} SNPs")
         
-        if genotypes.shape[0] == n_snps_expected and genotypes.shape[1] == n_samples_expected:
-            logger.info("Matrix is transposed. Transposing to (samples x SNPs)...")
-            genotypes = genotypes.T
-        elif genotypes.shape[0] == n_samples_expected and genotypes.shape[1] == n_snps_expected:
-            logger.info("Matrix is already in correct orientation (samples x SNPs)")
-        else:
-            logger.warning("Matrix dimensions don't match expected values. Proceeding with caution.")
+    if genotypes.shape[0] == n_snps_expected and genotypes.shape[1] == n_samples_expected:
+        logger.info("Matrix is transposed. Transposing to (samples x SNPs)...")
+        genotypes = genotypes.T
+    elif genotypes.shape[0] == n_samples_expected and genotypes.shape[1] == n_snps_expected:
+        logger.info("Matrix is already in correct orientation (samples x SNPs)")
+    else:
+        logger.warning("Matrix dimensions don't match expected values. Proceeding with caution.")
     
     logger.info(f"Final genotype matrix shape: {genotypes.shape} (samples x SNPs)")
     n_samples, n_snps = genotypes.shape

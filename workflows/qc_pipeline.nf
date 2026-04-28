@@ -162,7 +162,7 @@ workflow QC_PIPELINE {
     
     emit:
         qc_data = qc_wrap_up.out
-        pcs = pcs.out
+        // pcs = pcs.out
         sum_stats_qc = quality_control_sum.out
 }
 

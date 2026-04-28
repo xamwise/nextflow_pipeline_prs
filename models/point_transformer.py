@@ -80,6 +80,18 @@ class PointTransformerModel(nn.Module):
         for name, p in self.named_parameters():
             if p.dim() > 1 and "LayerNorm" not in name and "layernorm" not in name:
                 nn.init.xavier_uniform_(p)
+                
+    @staticmethod
+    def _to_tokens(x: torch.Tensor) -> torch.Tensor:
+        """
+        Cast input to integer dosage tokens in [0, 2].
+
+        Defensive against soft-imputed dosages (0.7 -> 1) and stray values from
+        preprocessing. Hard-integer inputs (already long) pass through clamped.
+        """
+        if not x.is_floating_point() and x.dtype == torch.long:
+            return x.clamp(0, 2)
+        return x.round().long().clamp(0, 2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -88,6 +100,7 @@ class PointTransformerModel(nn.Module):
         Returns:
             (batch_size, output_dim)
         """
+        x = self._to_tokens(x)
         x = self.embedding(x)  # (batch, seq, d_model)
         x = self.positional_encoding(x)
         x = self.transformer_encoder(x)
@@ -97,6 +110,8 @@ class PointTransformerModel(nn.Module):
 
     def get_attention_weights(self, x: torch.Tensor):
         """Extract per-layer attention weights for interpretability."""
+        
+        x = self._to_tokens(x)
         x = self.embedding(x)
         x = self.positional_encoding(x)
 
@@ -115,6 +130,7 @@ class PointTransformerModel(nn.Module):
         return attn_weights
 
     def get_embeddings(self, x: torch.Tensor) -> torch.Tensor:
+        x = self._to_tokens(x)
         x = self.embedding(x)
         x = self.positional_encoding(x)
         x = self.transformer_encoder(x)

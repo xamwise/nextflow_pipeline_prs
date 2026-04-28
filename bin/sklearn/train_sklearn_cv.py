@@ -169,7 +169,7 @@ def get_model(model_type, params, is_classification=False):
             'extratrees': ExtraTreesClassifier,
             'adaboost': AdaBoostClassifier,
             'histgbm': HistGradientBoostingClassifier,
-            'svm': SVC,
+            'svm': lambda p: SVC(**{**p, 'probability': True}),
             'linear_svm': LinearSVC,
             'knn': KNeighborsClassifier,
             'mlp': MLPClassifier
@@ -296,16 +296,19 @@ def train_with_cv(X, y, model, cv_indices, is_classification=False):
             model_type = 'rf'
         elif 'GradientBoosting' in class_name:
             model_type = 'gbm'
-        elif 'SV' in class_name:
-            model_type = 'svm'
         elif 'Ridge' in class_name:
             model_type = 'ridge'
         elif 'Lasso' in class_name:
             model_type = 'lasso'
         elif 'ElasticNet' in class_name:
             model_type = 'elasticnet'
+        elif 'LinearSV' in class_name:
+            model_type = 'linear_svm'            
+        elif 'SV' in class_name:
+            model_type = 'svm'
         elif 'Linear' in class_name or 'Logistic' in class_name:
             model_type = 'linear'
+            
         else:
             # Fallback to original method
             model_type = class_name.lower().replace('classifier', '').replace('regressor', '')

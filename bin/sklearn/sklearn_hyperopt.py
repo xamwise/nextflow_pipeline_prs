@@ -25,7 +25,7 @@ from sklearn.ensemble import (
     RandomForestRegressor, GradientBoostingRegressor,
     RandomForestClassifier, GradientBoostingClassifier
 )
-from sklearn.svm import SVR, SVC
+from sklearn.svm import SVR, SVC, LinearSVC, LinearSVR
 import xgboost as xgb
 import lightgbm as lgb
 from catboost import CatBoostRegressor, CatBoostClassifier
@@ -301,6 +301,23 @@ def get_search_space(model_type, trial, is_classification=False):
         
         return params
     
+    elif model_type == 'linear_svm':
+        if is_classification:
+            return {
+                'loss': trial.suggest_categorical('loss', ['hinge', 'squared_hinge']),
+                'C': trial.suggest_float('C', 1e-4, 100, log=True),
+                'fit_intercept': trial.suggest_categorical('fit_intercept', [True, False]),
+                'max_iter': trial.suggest_int('max_iter', 100, 1000)
+            }
+        if not is_classification:
+            return {
+                'loss': trial.suggest_categorical('loss', ['epsilon_insensitive', 'squared_epsilon_insensitive']),
+                'C': trial.suggest_float('C', 1e-4, 100, log=True),
+                'epsilon': trial.suggest_float('epsilon', 1e-4, 1, log=True),
+                'fit_intercept': trial.suggest_categorical('fit_intercept', [True, False]),
+                'max_iter': trial.suggest_int('max_iter', 100, 1000)
+            }
+    
     else:
         # Default
         if is_classification:
@@ -323,7 +340,8 @@ def get_model(model_type, params, is_classification=False):
             'xgboost': lambda p: xgb.XGBClassifier(**p, n_jobs=-1, random_state=42, verbosity=0),
             'lightgbm': lambda p: lgb.LGBMClassifier(**p, n_jobs=-1, random_state=42, verbose=-1),
             'catboost': lambda p: CatBoostClassifier(**p, random_seed=42, verbose=False),
-            'svm': lambda p: SVC(**p)
+            'svm': lambda p: SVC(**p, probability=True, random_state=42),
+            'linear_svm': lambda p: LinearSVC(**p)
         }
     else:
         models = {
@@ -336,7 +354,8 @@ def get_model(model_type, params, is_classification=False):
             'xgboost': lambda p: xgb.XGBRegressor(**p, n_jobs=-1, random_state=42, verbosity=0),
             'lightgbm': lambda p: lgb.LGBMRegressor(**p, n_jobs=-1, random_state=42, verbose=-1),
             'catboost': lambda p: CatBoostRegressor(**p, random_seed=42, verbose=False),
-            'svm': lambda p: SVR(**p)
+            'svm': lambda p: SVR(**p),
+            'linear_svm': lambda p: LinearSVR(**p)
         }
     
     if model_type not in models:

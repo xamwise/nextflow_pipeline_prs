@@ -52,10 +52,32 @@ sumstats <- bigreadr::fread2(opt$sum_stats)
 
 # ── Format summary statistics ─────────────────────────────────────────────────
 
-names(sumstats) <- c("chr", "pos", "rsid", "a1", "a0",
+# Read column names from the summary statistics 
+stats_colnames <- colnames(sumstats)
+
+# print the column names to check if they match the expected ones
+cat(stats_colnames)
+
+if (opt$trait == "bin") {
+               
+  sumstats <- sumstats[, c('CHR', 'BP', 'SNP', 'A1', 'A2', 'N', 'SE', 'P', 'OR', 'INFO', 'MAF')]
+ 
+  names(sumstats) <- c("chr", "pos", "rsid", "a1", "a0",
                      "n_eff", "beta_se", "p", "OR", "INFO", "MAF")
 
-sumstats$beta <- log(sumstats$OR)
+  sumstats$beta <- log(sumstats$OR)
+
+} else if (opt$trait == "quant") {
+
+  sumstats <- sumstats[, c('CHR', 'BP', 'SNP', 'A1', 'A2', 'N', 'SE', 'P', 'BETA', 'INFO', 'MAF')]
+
+  names(sumstats) <- c("chr", "pos", "rsid", "a1", "a0",
+                     "n_eff", "beta_se", "p", "beta", "INFO", "MAF")
+
+} else {
+  stop("Trait type not recognised. Please specify either 'bin' or 'quant'.")
+}
+
 sumstats      <- sumstats[sumstats$rsid %in% info$rsid, ]
 
 # ── Prepare genotype data ─────────────────────────────────────────────────────

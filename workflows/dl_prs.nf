@@ -5,39 +5,45 @@ nextflow.enable.dsl=2
 
 // Pipeline parameters - no more hardcoded paths or nextflow.config dependency
 // params.base_dir = "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs"
-input_plink = "${params.base_dir}/data/qc/UKB_CRC.QC"
+// input_plink = "${params.base_dir}/data/qc/UKB_CRC.QC"
+
+// input_plink = "${params.base_dir}/data/raw/UKB_ALZ/UKB_ALZ"
+// phenotype_file = "${params.base_dir}/data/raw/UKB_ALZ/UKB_ALZ.pheno"  // Optional, if phenotype not in PLINK
+
 outdir = "${params.base_dir}/out"
 config = "${params.base_dir}/workflows/config/training_config.yaml"
-phenotype_file = "${params.base_dir}/data/raw/UKB_CRC/UKB_CRC.pheno"  // Optional, if phenotype not in PLINK
 
-// Data reuse parameters (lessons from sklearn pipeline)
-params.data_reuse = [:]
-params.data_reuse.use_existing_converted = false
-params.data_reuse.existing_genotype_file = ""
-params.data_reuse.existing_phenotype_file = ""
-params.data_reuse.use_existing_splits = false
-params.data_reuse.existing_splits_file = ""
+input_plink = "${params.base_dir}/${params.input_plink}"
+phenotype_file = "${params.base_dir}/${params.phenotype_file}"
 
-// Training parameters with defaults
-params.n_folds = 5
-params.test_size = 0.2
-params.val_size = 0.1
-params.seed = 42
-params.max_epochs = 50
-params.batch_size = 64
-params.learning_rate = 1e-5
-params.model_type = "standard"  // Options: bayesian, standard
-params.n_gpus = 1  // For multi-GPU training
+// // Data reuse parameters (lessons from sklearn pipeline)
+// params.data_reuse = [:]
+// params.data_reuse.use_existing_converted = false
+// params.data_reuse.existing_genotype_file = ""
+// params.data_reuse.existing_phenotype_file = ""
+// params.data_reuse.use_existing_splits = false
+// params.data_reuse.existing_splits_file = ""
 
-// Make hyperparameter optimization optional
-params.hyperopt = [:]
-params.hyperopt.enabled = false  // Optional by default
-params.hyperopt.n_trials = 20
+// // Training parameters with defaults
+// params.n_folds = 5
+// params.test_size = 0.2
+// params.val_size = 0.1
+// params.seed = 42
+// params.max_epochs = 50
+// params.batch_size = 32
+// params.learning_rate = 1e-5
+// params.model_type = "standard"  // Options: bayesian, standard
+// params.n_gpus = 1  // For multi-GPU training
 
-// Optional wandb
-params.use_wandb = false
-params.wandb_project = "prs-prediction-DL"
-params.wandb_entity = ""
+// // Make hyperparameter optimization optional
+// params.hyperopt = [:]
+// params.hyperopt.enabled = false  // Optional by default
+// params.hyperopt.n_trials = 20
+
+// // Optional wandb
+// params.use_wandb = false
+// params.wandb_project = "prs-prediction-DL"
+// params.wandb_entity = ""
 
 // Process definitions remain mostly the same but with params.base_dir
 process CONVERT_PLINK {
@@ -81,6 +87,7 @@ process SPLIT_DATA {
         --test_size ${params.test_size} \
         --val_size ${params.val_size} \
         --n_folds ${params.n_folds} \
+        --stratified \
         --seed ${params.seed} \
         --output_splits splits.json \
         --output_indices split_indices.npz

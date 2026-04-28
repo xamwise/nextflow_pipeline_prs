@@ -1,8 +1,9 @@
 # Configuration for Sklearn Models Pipeline
 
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
-input_plink_sklearn: /data/qc/UKB_CRC.QC  # PLINK file prefix
-input_phenotype_file: /data/raw/UKB_CRC/UKB_CRC.pheno  # Phenotype CSV file
+# input_plink_sklearn: /data/qc/UKB_BRC.QC  # PLINK file prefix
+input_plink_sklearn: /data/raw/UKB_BRC/UKB_BRC_filtered_3 # PLINK file prefix
+input_phenotype_file: /data/raw/UKB_BRC/UKB_BRC.pheno  # Phenotype CSV file
 
 # Data preprocessing
 data:
@@ -78,9 +79,12 @@ models:
     optimize: true
     n_trials: 10
     default_params:
-      n_estimators: 100
-      max_depth: 10
-      min_samples_split: 5
+      n_estimators: 500
+      max_depth: 20
+      min_samples_split: 10
+      class_weight: 'balanced'  # For classification
+      bootstrap: True
+      max_features: 'log2'
   
   gbm:
     enabled: false
@@ -98,17 +102,25 @@ models:
     optimize: true
     n_trials: 10
     default_params:
-      n_estimators: 100
-      learning_rate: 0.1
-      max_depth: 6
+      n_estimators: 5000
+      learning_rate: 0.01
+      max_depth: 4
   
   svm:
     enabled: true
     name: 'Support Vector Machine'
     optimize: true
-    n_trials: 10
+    n_trials: 5
     default_params:
-      kernel: 'rbf'
+      kernel: 'rbf'  # linear, rbf, poly
+
+  linear_svm:
+    enabled: true
+    name: 'Linear SVM'
+    optimize: true
+    n_trials: 5
+    default_params:
+      loss: 'hinge'  # hinge or squared_hinge
 
 # Ensemble methods (optional)
 ensemble:

@@ -7,6 +7,7 @@ from typing import Optional, Tuple, List, Dict
 import logging
 from pathlib import Path
 from sklearn.model_selection import KFold
+from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class GenotypeDataset(Dataset):
         indices: Optional[np.ndarray] = None,
         augment: bool = False,
         augmentation_params: Optional[Dict] = None,
+        target_scaler: Optional[Dict] = None,
         cache_size: int = 1000,
         normalize: bool = False
     ):
@@ -44,6 +46,7 @@ class GenotypeDataset(Dataset):
         self.augment = augment
         self.augmentation_params = augmentation_params or {}
         self.normalize = normalize
+        self.target_scaler = target_scaler
         
         # Don't open HDF5 file here - will open lazily
         self._h5_handle = None
@@ -133,6 +136,8 @@ class GenotypeDataset(Dataset):
         
         # Get phenotype
         phenotype = self.phenotypes.iloc[actual_idx].values
+        if self.target_scaler is not None:
+            phenotype = self.target_scaler.transform(phenotype.reshape(1, -1)).ravel()
         
         # Convert to tensors
         genotype_tensor = torch.FloatTensor(genotype)
@@ -200,6 +205,7 @@ class GenotypeDataModule:
         batch_size: int = 32,
         num_workers: int = 4,
         augment_train: bool = True,
+        scale_target: bool = False,
         augmentation_params: Optional[Dict] = None
     ):
         """
@@ -213,6 +219,8 @@ class GenotypeDataModule:
             num_workers: Number of workers for data loading
             augment_train: Whether to augment training data
             augmentation_params: Parameters for augmentation
+            scale_target: Whether to scale target phenotypes
+            target_scaler: Optional scaler for target phenotypes (if scale_target is True)
         """
         self.h5_file = h5_file
         self.phenotype_file = phenotype_file
@@ -220,6 +228,8 @@ class GenotypeDataModule:
         self.num_workers = num_workers
         self.augment_train = augment_train
         self.augmentation_params = augmentation_params
+        self.target_scalers: Dict[int, StandardScaler] = {}
+        self.scale_target = scale_target
         
         # Load split indices
         indices_data = np.load(indices_file)
@@ -266,7 +276,8 @@ class GenotypeDataModule:
             self.phenotype_file,
             indices=indices,
             augment=self.augment_train,
-            augmentation_params=self.augmentation_params
+            augmentation_params=self.augmentation_params,
+            target_scaler=self.get_target_scaler(fold) if self.scale_target else None
         )
         
         # Set num_workers to 0 to avoid multiprocessing issues with HDF5
@@ -289,7 +300,8 @@ class GenotypeDataModule:
             self.h5_file,
             self.phenotype_file,
             indices=indices,
-            augment=False
+            augment=False,
+            target_scaler=self.get_target_scaler(fold) if self.scale_target else None
         )
         
         # Set num_workers to 0 to avoid multiprocessing issues with HDF5
@@ -307,7 +319,8 @@ class GenotypeDataModule:
             self.h5_file,
             self.phenotype_file,
             indices=self.test_indices,
-            augment=False
+            augment=False,
+            target_scaler=self.get_target_scaler(0) if self.scale_target else None
         )
         
         # Set num_workers to 0 to avoid multiprocessing issues with HDF5
@@ -328,6 +341,16 @@ class GenotypeDataModule:
         """Get output dimension (number of phenotypes)."""
         phenotypes = pd.read_csv(self.phenotype_file)
         return phenotypes.shape[1]
+    
+    def get_target_scaler(self, fold: int):
+        if not self.scale_target:
+            return None
+        if fold not in self.target_scalers:
+            train_idx = self.fold_indices[fold]['train']
+            y_train = pd.read_csv(self.phenotype_file).iloc[train_idx].values
+            scaler = StandardScaler().fit(y_train)
+            self.target_scalers[fold] = scaler
+        return self.target_scalers[fold]
 
 
 # Custom collate function for variable-length sequences if needed

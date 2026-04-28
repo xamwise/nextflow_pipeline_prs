@@ -171,9 +171,13 @@ class HyperparameterOptimizer:
         """
         params = {}
         
-        # Model architecture parameters
-        model_type = trial.suggest_categorical('model_type', ['mlp', 'cnn', 'transformer', 'attention', 'bayesian'])
+        chosen_model_types = self.base_config.get('model', {}).get('model_type', ['mlp'])        
         
+        # Model architecture parameters
+        model_type = trial.suggest_categorical('model_type', chosen_model_types)
+        logger.info(f"Trial {trial.number}: Sampling hyperparameters for model type: {model_type}")
+
+                        
         if model_type == 'mlp':
             params['model'] = {
                 'model_type': 'mlp',

@@ -39,11 +39,14 @@ process sbayesr {
 
     plink --bfile $bed --score '${out_dir}/${out_prefix}_sbrc.txt' --out $out_dir/prs_sbrc
 
-    echo "Calculating PRS using SBayesRC built in method..."
-
-    Rscript -e "SBayesRC::prs(weight='${out_dir}/${out_prefix}_sbrc.txt', genoPrefix='$genotype_prefix', \
-                  out='${out_dir}/${out_prefix}_sbrc', genoCHR='')"
+   
 
 
     """
+
+
+    // echo "Calculating PRS using SBayesRC built in method..."
+
+    // Rscript -e "SBayesRC::prs(weight='${out_dir}/${out_prefix}_sbrc.txt', genoPrefix='$genotype_prefix', \
+    //               out='${out_dir}/${out_prefix}_sbrc', genoCHR='')"
 }

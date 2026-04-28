@@ -2,10 +2,10 @@
 # Usage: nextflow run workflows/qc_pipeline.nf -params-file params_qc_only.yaml
 
 # General Settings
-population: balanced
+population: UKB_ALZ
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
 
-sumstats: balanced_half_37_high_p
+sumstats: alzheimers_sumstats_hg37
 
 # Quality Control Parameters
 qc:

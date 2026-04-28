@@ -587,6 +587,7 @@ def main():
     comparison = load_comparison_report(args.comparison) if args.comparison else {}
     feature_importance = load_feature_importance(args.features)
     cv_results = load_cv_results(args.cv_results)
+    
     ensemble_perf = load_ensemble_performance(args.ensemble)
 
     # Detect task type

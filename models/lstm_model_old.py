@@ -17,7 +17,7 @@ class LSTMModel(nn.Module):
     concatenated and pooled to produce a fixed-size representation
     for phenotype prediction.
 
-    Memory scales as O(n x d) rather than O(n^2), enabling training
+    Memory scales as O(n × d) rather than O(n²), enabling training
     on large SNP panels without the quadratic attention bottleneck.
     """
 
@@ -36,7 +36,7 @@ class LSTMModel(nn.Module):
             input_dim: Number of input features (SNPs)
             output_dim: Number of output features (phenotypes)
             hidden_dim: Hidden dimension for each LSTM direction
-                        (total hidden = hidden_dim x 2 due to bidirectional)
+                        (total hidden = hidden_dim × 2 due to bidirectional)
             n_layers: Number of stacked LSTM layers
             dropout_rate: Dropout probability for regularization
         """
@@ -60,7 +60,7 @@ class LSTMModel(nn.Module):
             dropout=dropout_rate if n_layers > 1 else 0.0,
         )
 
-        # Output projection (hidden_dim x 2 because bidirectional)
+        # Output projection (hidden_dim × 2 because bidirectional)
         self.head = nn.Sequential(
             nn.LayerNorm(hidden_dim * 2),
             nn.Linear(hidden_dim * 2, hidden_dim),
@@ -80,11 +80,7 @@ class LSTMModel(nn.Module):
                 nn.init.orthogonal_(p)
             elif "bias" in name:
                 nn.init.zeros_(p)
-                # Set forget gate bias to 1 for better gradient flow.
-                # PyTorch LSTM bias layout per layer is [i, f, g, o], each of
-                # size hidden_size; the forget-gate slice is [hidden:2*hidden].
-                # The loop hits both bias_ih and bias_hh (both contain "bias"
-                # in their names) so this is applied to both, which is correct.
+                # Set forget gate bias to 1 for better gradient flow
                 hidden = self.hidden_dim
                 p.data[hidden : 2 * hidden].fill_(1.0)
 
@@ -105,12 +101,12 @@ class LSTMModel(nn.Module):
             x: Input tensor of shape (batch_size, n_snps) with values in {0, 1, 2}
 
         Returns:
-            Pooled representation of shape (batch_size, hidden_dim x 2)
+            Pooled representation of shape (batch_size, hidden_dim × 2)
         """
         x = x.long()
         x = self.embedding(x)  # (batch, seq, hidden_dim)
 
-        # LSTM output: (batch, seq, hidden_dim x 2)
+        # LSTM output: (batch, seq, hidden_dim × 2)
         output, _ = self.lstm(x)
 
         # Mean pool over sequence
@@ -139,7 +135,7 @@ class LSTMModel(nn.Module):
             x: Input tensor of shape (batch_size, n_snps)
 
         Returns:
-            Embeddings tensor of shape (batch_size, hidden_dim x 2)
+            Embeddings tensor of shape (batch_size, hidden_dim × 2)
         """
         return self._encode(x)
 
@@ -159,23 +155,15 @@ class LSTMModel(nn.Module):
         """
         x = x.long()
         embedded = self.embedding(x)
+
+        # Need gradients for the LSTM output
         output, _ = self.lstm(embedded)
+        output.retain_grad()
 
         pooled = output.mean(dim=1)
         prediction = self.head(pooled)
+        prediction.sum().backward()
 
-        # Use torch.autograd.grad rather than .backward() so that .grad
-        # attributes on model parameters are NOT populated. The original
-        # called prediction.sum().backward() which fills .grad on every
-        # parameter that participated in the forward; if this method was
-        # called mid-training, the next optimizer step would see polluted
-        # gradients (PyTorch accumulates into .grad by default).
-        grad = torch.autograd.grad(
-            outputs=prediction.sum(),
-            inputs=output,
-            create_graph=False,
-            retain_graph=False,
-        )[0]
-
-        # grad shape: (batch, seq, hidden_dim x 2). Mean over batch and hidden.
-        return grad.abs().mean(dim=(0, 2))
+        # Importance = mean absolute gradient per position
+        # output.grad: (batch, seq, hidden_dim × 2)
+        return output.grad.abs().mean(dim=(0, 2))

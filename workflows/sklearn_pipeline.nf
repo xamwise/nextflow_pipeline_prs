@@ -281,26 +281,26 @@ process GENERATE_REPORT {
     path "sklearn_pipeline_summary.pdf", emit: summary
     
     script:
-    // def ensemble_arg = ensemble_performance != "none" ? "--ensemble ${ensemble_performance}" : ""
-    // def features_arg = feature_importance != "none" ? "--features ${feature_importance}" : ""
-
-    // """
-    // python ${params.base_dir}/bin/sklearn/generate_report.py \
-    //     --comparison ${comparison_report} \
-    //     ${features_arg} \
-    //     --cv_results ${all_cv_results} \
-    //     ${ensemble_arg} \
-    //     --output_html sklearn_pipeline_report.html \
-    //     --output_pdf sklearn_pipeline_summary.pdf
-    // """
+    def ensemble_arg = ensemble_performance != "no_ensemble" ? "--ensemble ${ensemble_performance}" : ""
+    def features_arg = feature_importance != "no_features" ? "--features ${feature_importance}" : ""
 
     """
     python ${params.base_dir}/bin/sklearn/generate_report.py \
         --comparison ${comparison_report} \
+        ${features_arg} \
         --cv_results ${all_cv_results} \
+        ${ensemble_arg} \
         --output_html sklearn_pipeline_report.html \
         --output_pdf sklearn_pipeline_summary.pdf
     """
+
+    // """
+    // python ${params.base_dir}/bin/sklearn/generate_report.py \
+    //     --comparison ${comparison_report} \
+    //     --cv_results ${all_cv_results} \
+    //     --output_html sklearn_pipeline_report.html \
+    //     --output_pdf sklearn_pipeline_summary.pdf
+    // """
 }
 
 workflow SKLEARN_MODELS {
@@ -322,7 +322,7 @@ workflow SKLEARN_MODELS {
             feature_importance = FEATURE_SELECTION.out.importance
         } else {
             selected_data = genotype_data
-            feature_importance = Channel.value(file("none"))
+            feature_importance = Channel.value(file("no_features"))
         }
         
         // Prepare channels for enabled models
@@ -351,6 +351,9 @@ workflow SKLEARN_MODELS {
         }
         if (params.models.svm.enabled) {
             models_ch = models_ch.mix(Channel.of("svm"))
+        }
+        if (params.models.linear_svm.enabled) {
+            models_ch = models_ch.mix(Channel.of("linear_svm"))
         }
         
         // Process each model - combine with data
@@ -428,7 +431,7 @@ workflow SKLEARN_MODELS {
             )
             ensemble_performance = CREATE_ENSEMBLE.out.performance
         } else {
-            ensemble_performance = Channel.value(file("none"))
+            ensemble_performance = Channel.value(file("no_ensemble"))
         }
         
         // Generate report

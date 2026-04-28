@@ -2,34 +2,52 @@
 
 # Model configuration for PRS prediction
 model:
-  model_type: "cnn"  # Options: mlp, cnn, transformer, attention, bayesian/bnn, point_transformer, lstm
+  model_type: "mlp"  # Options: mlp, cnn, transformer, attention, bayesian/bnn, point_transformer, lstm, mlp_regression, cnn_regression, lstm_regression, advanced_mlp, advanced_cnn, advanced_lstm
   
+  # Parameters used across multiple model types 
+  dropout_rate: 0.3 # Used in all models
+  activation: "relu"  # Options: relu, elu, leaky_relu, used in MLP, Bayesian, and advanced models
+  norm: 'batch'  # batch, layer, or none; for advanced models
+
+
   # MLP specific parameters (recommended for PRS)
-  hidden_dims: [1000, 250, 50]  # Deeper network for complex genetic patterns
-  dropout_rate: 0.2
-  activation: "relu"  # Options: relu, elu, leaky_relu
-  batch_norm: true
-  
+  hidden_dims: [64, 16]  # Deeper network for complex genetic patterns
+  batch_norm: True
+
+  # Advanced MLP specific parameters
+  wide_skip: True  # Add skip connection from input to final layer (like Wide & Deep)
+
+
   # CNN specific parameters (if model_type: cnn)
-  channels: [32, 64, 128]
-  kernel_sizes: [7, 5, 3]
-  pool_sizes: [2, 2, 2]
-  fc_dims: [256, 128]
+  channels: [32, 64]
+  kernel_sizes: [7, 5]
+  pool_sizes: [3, 3]
+  fc_dims: [128, 32]
+
+  # Advanced CNN specific parameters
+  pool_type: 'max'  # max or avg
+  in_channels: 1  # Genotype data is typically single-channel
+  
+  # LSTM specific parameters (if model_type: lstm)
+  hidden_dim: 64
+  n_layers: 1
+  pool: 'max'  # mean, max, mean_max, last
   
   # Transformer specific parameters (if model_type: transformer)
   d_model: 64
-  n_heads: 8
-  n_layers: 4
-  d_ff: 1024
+  n_heads: 4
+  n_layers: 2
+  d_ff: 256
+  max_seq_len: 252  # Adjust based on number of SNPs
   
   # Attention specific parameters (if model_type: attention)
-  hidden_dim: 64
+  # hidden_dim: 256
   attention_dim: 128
   n_attention_heads: 2
   
   # Bayesian Neural Network parameters (if model_type: bayesian/bnn)
-  hidden_dims: [1024, 256, 64]  
-  compressed_dim: 512          # Deterministic compression before Bayesian layers
+  #hidden_dims: [1024, 256, 64]  
+  compressed_dim: 200         # Deterministic compression before Bayesian layers
   compressor_layers: 1
   compressor_dropout: 0.1
   prior_pi: 0.75               # Mixture weight for slab component
@@ -40,20 +58,16 @@ model:
   kl_weight: 0.0             # KL multiplier (useful for warm-up schedules)
   task: "binary"                 # 'binary' for disease phenotypes, 'regression' for quantitative traits
 
-  kl_warmup_epochs: 30        # Linear ramp from 0 → kl_weight
+  # Bayesian-specific training parameters
+  kl_warmup_epochs: 5        # Linear ramp from 0 → kl_weight
   n_val_samples: 30            # MC samples for validation uncertainty
 
- 
-  # LSTM specific parameters (if model_type: lstm)
-  hidden_dim: 256
-  n_layers: 2
-  dropout_rate: 0.3
 
 # Optimizer configuration
 optimizer:
   type: "adamw"  # Options: adam, adamw, sgd
-  lr: 0.0001
-  weight_decay: 0.01
+  lr: 0.0003
+  weight_decay: 0.05
   # SGD specific
   momentum: 0.9
 
@@ -61,20 +75,21 @@ optimizer:
 scheduler:
   type: "reduce_on_plateau"  # Options: step, cosine, reduce_on_plateau
   # ReduceLROnPlateau specific
-  patience: 10
-  factor: 0.1
+  patience: 5
+  factor: 0.5
   # StepLR specific
-  step_size: 30
+  step_size: 10
   gamma: 0.1
 
 # Training parameters
-max_epochs: 50
-batch_size: 64
+max_epochs: 60
+batch_size: 16
 num_workers: 5
 gradient_clip: 1.0
 
 # Loss function
-loss_function: "auto"  # Options: mse, mae, huber, crossentropy, auto (recommended)
+loss_function: "auto"  # Options: mse, mae, huber, crossentropy, auto (recommended), bce_ls (binary cross-entropy with label smoothing)
+label_smoothing: 0.05  # Only used if loss_function is crossentropy with label smoothing
 
 # Early stopping
 early_stopping:
@@ -82,15 +97,15 @@ early_stopping:
   min_delta: 0.0001
 
 # Data augmentation
-augment_train: false
+augment_train: true
 augmentation_params:
   snp_dropout: 0.1
-  noise_std: 0.05
-  shuffle_regions: 10
+  # noise_std: 0.05
+  # shuffle_regions: 10
 
 # Logging with Weights & Biases
 use_wandb: true  # Enable W&B logging
-wandb_project: "prs-prediction-crc"
+wandb_project: "prs-prediction-local"  
 wandb_entity: null  # Set to your W&B username/team
 log_interval: 10
 save_checkpoint_interval: 5
@@ -111,7 +126,7 @@ preprocessing:
 # Cross-validation
 cv:
   n_folds: 5
-  stratified: true
+  stratified: True
 
 # Evaluation metrics
 metrics:
@@ -125,7 +140,7 @@ metrics:
 hyperparameter_search:
   model_type:
     type: categorical
-    choices: ["mlp", "cnn", "transformer", "attention"]
+    # choices: ["mlp", "cnn", "transformer", "attention"]
   
   learning_rate:
     type: float

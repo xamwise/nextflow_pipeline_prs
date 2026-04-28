@@ -28,6 +28,7 @@ include { prset } from '../modules/local/prset'
 include { lassosum2 } from '../modules/local/lassosum2'
 include { sct } from '../modules/local/sct'
 include { create_folds } from '../modules/local/create_folds'
+include { ldpred2_cli } from '../modules/local/ldpred2_cli'
 
 // Import QC pipeline if needed
 include { QC_PIPELINE } from './qc_pipeline.nf'
@@ -118,6 +119,23 @@ workflow PRS_MODELS {
                 qc_dir
             )
         }
+
+        if (params.run_ldpred2_cli) {
+            ldpred2_cli(
+                qc_data,
+                pheno_file,
+                cov_file,
+                pcs_file,
+                "${ld_dir}/map.rds",
+                sum_stats_qc,
+                params.ldpred2.trait ?: "quant",
+                params.ldpred2.model ?: "auto",
+                "${results_dir}/ldpred2_cli/",
+                population,
+                qc_dir
+                )
+        }
+
         
         // Model 4: PRS-CS
         if (params.run_prs_cs) {
@@ -129,7 +147,7 @@ workflow PRS_MODELS {
             
             // Run PRS-CS
             prs_cs(
-                "${ld_dir}/ldblk_ukbb_eur",
+                "${ld_dir}/ldblk_1kg_eur",
                 prs_cs_preprocess.out,
                 qc_prefix,
                 params.prs_cs.n_gwas ?: 20000,

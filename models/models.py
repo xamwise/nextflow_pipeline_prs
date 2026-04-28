@@ -18,6 +18,14 @@ from .bayesian_model import BayesianNeuralNetwork
 from .point_transformer import PointTransformerModel
 from .lstm_model import LSTMModel
 
+from .advanced_mlp_model import AdvancedMLP
+from .advanced_cnn_model import AdvancedCNN
+from .advanced_lstm_model import AdvancedLSTM
+
+from .mlp_model_regression import SimpleMLP_R
+from .cnn_model_regression import SimpleCNNModel_R
+from .lstm_model_regression import LSTMModel_R
+
 # Re-export models for convenience
 __all__ = [
     'SimpleMLP',
@@ -28,6 +36,15 @@ __all__ = [
     'BayesianNeuralNetwork',
     'PointTransformerModel',
     'LSTMModel',
+    
+    'SimpleMLP_R',
+    'SimpleCNNModel_R',
+    'LSTMModel_R',
+    
+    'AdvancedMLP',
+    'AdvancedCNN',
+    'AdvancedLSTM',
+
     'create_model'
 ]
 
@@ -149,6 +166,81 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
             n_layers=config.get('n_layers', 2),
             dropout_rate=config.get('dropout_rate', 0.3)
         )
+        
+    elif model_type == 'mlp_regression':
+        return SimpleMLP_R(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            hidden_dims=config.get('hidden_dims', [1024, 512, 256]),
+            dropout_rate=config.get('dropout_rate', 0.3),
+            activation=config.get('activation', 'relu'),
+            batch_norm=config.get('batch_norm', True)
+        )
+        
+    elif model_type == 'cnn_regression':
+        return SimpleCNNModel_R(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            channels=config.get('channels', [32, 64, 128]),
+            kernel_sizes=config.get('kernel_sizes', [7, 5, 3]),
+            pool_sizes=config.get('pool_sizes', [2, 2, 2]),
+            fc_dims=config.get('fc_dims', [256, 128]),
+            dropout_rate=config.get('dropout_rate', 0.3)
+        )
+    
+    elif model_type == 'lstm_regression':
+        return LSTMModel_R(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            hidden_dim=config.get('hidden_dim', 256),
+            n_layers=config.get('n_layers', 2),
+            dropout_rate=config.get('dropout_rate', 0.3),
+            pool=config.get('pool', 'mean')
+        )
+        
+    elif model_type == 'advanced_mlp':
+        return AdvancedMLP(
+            input_dim=input_dim,
+            task=config.get('task', 'binary'),
+            num_classes=config.get('num_classes', 2),
+            hidden_dims=config.get('hidden_dims', [1024, 512, 256]),
+            dropout_rate=config.get('dropout_rate', 0.3),
+            activation=config.get('activation', 'relu'),
+            norm=config.get('norm', 'batch'),
+            wide_skip=config.get('wide_skip', True),
+            first_layer_l1=config.get('first_layer_l1', 0.0)
+        )
+        
+    elif model_type == 'advanced_cnn':
+        return AdvancedCNN(
+            input_dim=input_dim,
+            task=config.get('task', 'binary'),
+            num_classes=config.get('num_classes', 2),
+            channels=config.get('channels', [32, 64, 128]),
+            kernel_sizes=config.get('kernel_sizes', [7, 5, 3]),
+            pool_sizes=config.get('pool_sizes', [2, 2, 2]),
+            fc_dims=config.get('fc_dims', [256, 128]),
+            dropout_rate=config.get('dropout_rate', 0.3),
+            norm=config.get('norm', 'batch'),
+            pool_type=config.get('pool_type', 'max'),
+            in_channels=config.get('in_channels', 1),
+            wide_skip=config.get('wide_skip', True),
+            first_layer_l1=config.get('first_layer_l1', 0.0)
+        )
+    
+    elif model_type == 'advanced_lstm':
+        return AdvancedLSTM(
+            input_dim=input_dim,
+            task=config.get('task', 'binary'),
+            num_classes=config.get('num_classes', 2),
+            hidden_dim=config.get('hidden_dim', 256),
+            n_layers=config.get('n_layers', 2),
+            dropout_rate=config.get('dropout_rate', 0.3),
+            pool=config.get('pool', 'mean'),
+            num_genotypes=config.get('num_genotypes', 3),
+            wide_skip=config.get('wide_skip', True),
+            first_layer_l1=config.get('first_layer_l1', 0.0)
+        )
     
     else:
         raise ValueError(
@@ -251,6 +343,71 @@ def get_model_info(model_type: str) -> Dict[str, Any]:
                 'n_layers': 2,
                 'dropout_rate': 0.3
             }
+        },
+        'mlp_regression': {
+            'class': SimpleMLP_R,
+            'description': 'MLP for continuous phenotype prediction',
+            'default_params': {
+                'hidden_dims': [1024, 512, 256],
+                'dropout_rate': 0.3,
+                'activation': 'relu',
+                'batch_norm': True
+            }
+        },
+        'cnn_regression': {
+            'class': SimpleCNNModel_R,
+            'description': '1D CNN for continuous phenotype prediction',
+            'default_params': {
+                'channels': [32, 64, 128],
+                'kernel_sizes': [7, 5, 3],
+                'pool_sizes': [2, 2, 2],
+                'fc_dims': [256, 128],
+                'dropout_rate': 0.3
+            }
+        },
+        'lstm_regression': {
+            'class': LSTMModel_R,
+            'description': 'BiLSTM for continuous phenotype prediction',
+            'default_params': {
+                'hidden_dim': 256,
+                'n_layers': 2,
+                'dropout_rate': 0.3,
+                'pool': 'mean'
+            }
+        },
+        'advanced_mlp': {
+            'class': AdvancedMLP,
+            'description': 'Advanced MLP with customizable architecture',
+            'default_params': {
+                'hidden_dims': [1024, 512, 256],
+                'dropout_rate': 0.3,
+                'activation': 'relu',
+                'batch_norm': True
+            }
+        },
+        'advanced_cnn': {
+            'class': AdvancedCNN,
+            'description': 'Advanced CNN with customizable architecture and normalization',
+            'default_params': {
+                'channels': [32, 64, 128],
+                'kernel_sizes': [7, 5, 3],
+                'pool_sizes': [2, 2, 2],
+                'fc_dims': [256, 128],
+                'dropout_rate': 0.3,
+                'norm': 'batch',
+                'pool_type': 'max',
+                'in_channels': 1
+            }
+        },
+        'advanced_lstm': {
+            'class': AdvancedLSTM,
+            'description': 'Advanced LSTM with customizable architecture and pooling',
+            'default_params': {
+                'hidden_dim': 256,
+                'n_layers': 2,
+                'dropout_rate': 0.3,
+                'pool': 'mean'
+            }
         }
     }
     
@@ -267,4 +424,4 @@ def list_available_models() -> list:
     Returns:
         List of available model type strings
     """
-    return ['mlp', 'cnn', 'transformer', 'attention', 'lstm', 'bayesian', 'bnn', 'point_transformer']
+    return ['mlp', 'cnn', 'transformer', 'attention', 'lstm', 'bayesian', 'bnn', 'point_transformer', 'mlp_regression', 'cnn_regression', 'lstm_regression', 'advanced_mlp', 'advanced_cnn', 'advanced_lstm']

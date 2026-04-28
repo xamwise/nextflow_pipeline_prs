@@ -85,7 +85,8 @@ out <- lassosum.pipeline(
   ref.bfile = bfile,
   test.bfile = bfile,
   LDblocks = ld.file, 
-  cluster=cl
+  cluster=cl,
+  max.ref.bfile.n = 40000
 )
 # Store the R2 results
 target.res <- validate(out, pheno = as.data.frame(target.pheno), covar=as.data.frame(cov))

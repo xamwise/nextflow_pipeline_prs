@@ -73,7 +73,12 @@ Install required R packages:
 
 ```r
 install.packages(c("optparse", "bigsnpr", "tidyr", "ggplot", "Matrix",
-                   "data", "fmsb", "devtools", "tidyverse", "magrittr"))
+                   "data", "fmsb", "devtools", "tidyverse", "magrittr",
+                   "bigreadr", "argparser", "stringr",
+                   "ggplot2", "cowplot", "bit64", "data.table",
+                   , "fmsb"))
+
+install.packages(c())
 ```
 
 ### Python Dependencies

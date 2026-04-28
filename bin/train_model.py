@@ -16,7 +16,7 @@ from scipy import stats
 import sys
 import os
 
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report, r2_score
 from torch.cuda.amp import autocast, GradScaler
 
 
@@ -35,6 +35,24 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+class BCEWithLogitsLossLS(nn.Module):
+    """BCE-with-logits with two-sided label smoothing.
+
+    Maps targets {0, 1} -> {eps, 1 - eps}. Smoothing is only applied
+    when the module is in training mode so validation loss remains
+    comparable across runs.
+    """
+    def __init__(self, smoothing: float = 0.0, pos_weight: torch.Tensor = None):
+        super().__init__()
+        assert 0.0 <= smoothing < 0.5, "smoothing must be in [0, 0.5)"
+        self.smoothing = smoothing
+        self.bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        if self.smoothing > 0.0 and self.training:
+            targets = targets * (1.0 - 2.0 * self.smoothing) + self.smoothing
+        return self.bce(logits, targets.float())
 
 
 class Trainer:
@@ -73,6 +91,11 @@ class Trainer:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model.to(self.device)
         logger.info(f"Using device: {self.device}")
+        
+        #Scale target for regression tasks
+        self.target_scaler = data_module.get_target_scaler(fold)
+        
+        logger.info(f"Scaling target variable: {self.target_scaler is not None}")
         
         # Optimizer
         self.optimizer = self._create_optimizer()
@@ -178,6 +201,11 @@ class Trainer:
             return nn.BCEWithLogitsLoss()
         elif loss_type == 'crossentropy':
             return nn.CrossEntropyLoss()
+        elif loss_type == 'huber':
+            return nn.HuberLoss()
+        elif loss_type == 'bce_ls':
+            smoothing = float(self.config.get('label_smoothing', 0.0))
+            return BCEWithLogitsLossLS(smoothing=smoothing)
         else:
             raise ValueError(f"Unknown loss function: {loss_type}")
     
@@ -240,6 +268,7 @@ class Trainer:
             Tuple of (average loss, metrics dictionary)
         """
         self.model.train()
+        self.criterion.train()  # Ensure loss function is in training mode (for label smoothing)
         train_loader = self.data_module.train_dataloader(self.fold)
         
         total_loss = 0
@@ -348,6 +377,7 @@ class Trainer:
             Tuple of (average loss, metrics dictionary)
         """
         self.model.eval()
+        self.criterion.eval()  # Ensure loss function is in eval mode (for label smoothing)
         val_loader = self.data_module.val_dataloader(self.fold)
         
         total_loss = 0
@@ -387,15 +417,23 @@ class Trainer:
         
         if self.task_type == 'regression':
             # Regression metrics (existing code)
+            
+            if self.target_scaler is not None:
+                predictions_np = self.target_scaler.inverse_transform(predictions_np.reshape(-1, 1)).ravel()
+                targets_np = self.target_scaler.inverse_transform(targets_np.reshape(-1, 1)).ravel()
+            
             mse = np.mean((predictions_np - targets_np) ** 2)
             metrics['mse'] = float(mse)
             metrics['rmse'] = float(np.sqrt(mse))
             metrics['mae'] = float(np.mean(np.abs(predictions_np - targets_np)))
             
             # R-squared
-            ss_res = np.sum((targets_np - predictions_np) ** 2)
-            ss_tot = np.sum((targets_np - np.mean(targets_np)) ** 2)
-            r2 = 1 - (ss_res / (ss_tot + 1e-8))
+            # ss_res = np.sum((targets_np - predictions_np) ** 2)
+            # ss_tot = np.sum((targets_np - np.mean(targets_np)) ** 2)
+            # r2 = 1 - (ss_res / (ss_tot + 1e-8))
+            # metrics['r2'] = float(r2)
+            
+            r2 = r2_score(targets_np, predictions_np)
             metrics['r2'] = float(r2)
             
             # Correlations
@@ -484,6 +522,11 @@ class Trainer:
             # Logging
             self.log_epoch(train_loss, train_metrics, val_loss, val_metrics)
             
+            # Early stopping
+            if self.check_early_stopping(val_loss, self.config['early_stopping']['patience'] if 'early_stopping' in self.config else 20):
+                logger.info(f"Early stopping triggered at epoch {epoch}")
+                break
+            
             # Save best model
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
@@ -496,11 +539,7 @@ class Trainer:
                 best_metric_value = current_metric
                 self.save_checkpoint(is_best=True, metric=primary_metric)
                 logger.info(f"New best model saved with {primary_metric}: {current_metric:.4f}")
-            
-            # Early stopping
-            if self.check_early_stopping(val_loss):
-                logger.info(f"Early stopping triggered at epoch {epoch}")
-                break
+                        
         
         # Save final model
         self.save_checkpoint(is_best=False, final=True)
@@ -579,11 +618,14 @@ class Trainer:
         Returns:
             True if training should stop
         """
+        
         if 'early_stopping' not in self.config:
             return False
         
         if not hasattr(self, 'patience_counter'):
             self.patience_counter = 0
+            
+        logger.info(f"Early stopping check: val_loss={val_loss:.4f}, best_val_loss={self.best_val_loss:.4f}, patience_counter={self.patience_counter}")
         
         if val_loss >= self.best_val_loss:
             self.patience_counter += 1
@@ -669,6 +711,8 @@ def main():
     config['wandb_project'] = args.wandb_project
     config['wandb_entity'] = args.wandb_entity
     
+    logger.info(f"Training augmentation: {config.get('augment_train', False)}")
+    
     # Create data module
     data_module = GenotypeDataModule(
         h5_file=args.genotype_file,
@@ -691,6 +735,8 @@ def main():
     
     logger.info(f"Model configuration: {model_config}")
     
+    logger.info(f"Max epochs: {config['max_epochs']}, Batch size: {config['batch_size']}")
+    
     # Auto-detect task type if not specified
     if 'task_type' not in model_config:
         sample_loader = data_module.train_dataloader(args.fold)
@@ -699,6 +745,8 @@ def main():
         logger.info(f"Auto-detected task type: {model_config['task_type']}")
     else:
         logger.info(f"Using specified task type: {model_config['task_type']}")
+        
+    data_module.scale_target = (model_config['task_type'] == 'regression')
     
     model = create_model(model_config)
         

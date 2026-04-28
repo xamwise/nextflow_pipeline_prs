@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.model_selection import KFold, StratifiedKFold, KFold
 import os
 import argparse
 
@@ -11,8 +11,17 @@ def create_folds(pheno_file, n_folds, output_dir, random_state=42):
     
     print(pheno_df.head())
 
-    # Create KFold object
-    kf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)   
+    # Check if 'phenotype' column is binary for stratification
+    if 'phenotype' not in pheno_df.columns:
+        raise ValueError("The .pheno file must contain a 'phenotype' column for stratification.")
+    if pheno_df['phenotype'].nunique() != 2:
+        print("Phenotype is not binary. Using regular KFold without stratification.")
+        kf = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+    else:
+        print("Using StratifiedKFold for binary phenotype.")
+        kf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)   
+        
+
 
     # Create output directory if it doesn't exist
     os.makedirs(f"{output_dir}/folds", exist_ok=True)
