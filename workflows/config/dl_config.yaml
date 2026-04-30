@@ -1,11 +1,11 @@
 # Pipeline configuration for Deep Learning PRS prediction
 
 # Base paths
-base_dir: "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs"
-input_plink: "/data/raw/UKB_BRC/UKB_BRC_filtered_8"  # PLINK file prefix
-phenotype_file: "/data/raw/UKB_BRC/UKB_BRC.pheno"  # Optional, if not in PLINK
+base_dir_parse: "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs"
+input_plink_parse: "/data/raw/UKB_BRC/UKB_BRC_filtered_3"  # PLINK file prefix
+phenotype_file_parse: "/data/raw/UKB_BRC/UKB_BRC.pheno"  # Optional, if not in PLINK
 
-model_type: "standard"  # Options: bayesian, standard
+model_type: "bayesian"  # Options: bayesian, standard
 n_gpus: 1  # For multi-GPU training
 
 # Data reuse configuration
@@ -16,13 +16,15 @@ data_reuse:
   use_existing_splits: false
   existing_splits_file: ""
 
+encoding: "raw"  # Genotype encoding: 'raw', 'one-hot', 'two-dim'
+
 # Training parameters
 n_folds: 5
 test_size: 0.2
 val_size: 0.1
 seed: 42
 max_epochs: 60
-batch_size: 16
+batch_size: 32
 # learning_rate: 0.0001  # 1e-5
 
 # Hyperparameter optimization

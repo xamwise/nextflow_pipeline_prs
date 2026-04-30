@@ -53,8 +53,15 @@ class GenotypeDataset(Dataset):
         
         # Get dimensions by temporarily opening the file
         with h5py.File(h5_file, 'r') as f:
-            self.n_samples, self.n_snps = f['genotypes'].shape
-        
+            shape = f['genotypes'].shape
+            self.n_samples = shape[0]
+            self.n_snps = shape[1]
+            self.n_channels = shape[2] if len(shape) == 3 else 1
+            # Encoding may not be present in older files
+            self.encoding = f.attrs.get('encoding', 'raw')
+            if isinstance(self.encoding, bytes):
+                self.encoding = self.encoding.decode('utf-8')  
+                
         # Handle indices for data splits
         if indices is not None:
             self.indices = indices
@@ -65,7 +72,14 @@ class GenotypeDataset(Dataset):
         self.cache = {}
         self.cache_size = cache_size
         
-        # Calculate statistics for normalization
+        # Only normalize raw {0,1,2} counts; for one-hot / two-dim it's not meaningful.
+        if self.normalize and self.encoding != 'raw':
+            logger.warning(
+                f"normalize=True ignored for encoding={self.encoding!r}; "
+                "normalization is only applied to 'raw' encoding."
+            )
+            self.normalize = False
+
         if self.normalize:
             self._calculate_stats()
         
@@ -145,40 +159,106 @@ class GenotypeDataset(Dataset):
         
         return genotype_tensor, phenotype_tensor
     
+    # def _augment_genotype(self, genotype: np.ndarray) -> np.ndarray:
+    #     """
+    #     Apply data augmentation to genotype data.
+        
+    #     Args:
+    #         genotype: Input genotype array
+            
+    #     Returns:
+    #         Augmented genotype array
+    #     """
+    #     augmented = genotype.copy()
+        
+    #     # Random SNP dropout
+    #     if 'snp_dropout' in self.augmentation_params:
+    #         dropout_rate = self.augmentation_params['snp_dropout']
+    #         mask = np.random.random(len(augmented)) > dropout_rate
+    #         augmented = augmented * mask
+        
+    #     # Add noise
+    #     if 'noise_std' in self.augmentation_params:
+    #         noise_std = self.augmentation_params['noise_std']
+    #         noise = np.random.normal(0, noise_std, size=augmented.shape)
+    #         augmented = augmented + noise
+        
+    #     # Random SNP shuffling (for specific regions)
+    #     if 'shuffle_regions' in self.augmentation_params:
+    #         n_regions = self.augmentation_params['shuffle_regions']
+    #         region_size = len(augmented) // n_regions
+    #         for i in range(n_regions):
+    #             if np.random.random() < 0.1:  # 10% chance to shuffle each region
+    #                 start = i * region_size
+    #                 end = min((i + 1) * region_size, len(augmented))
+    #                 np.random.shuffle(augmented[start:end])
+        
+    #     return augmented
+    
     def _augment_genotype(self, genotype: np.ndarray) -> np.ndarray:
         """
         Apply data augmentation to genotype data.
-        
-        Args:
-            genotype: Input genotype array
-            
-        Returns:
-            Augmented genotype array
+
+        For 'raw' encoding (1D input), augmentation acts per element, matching
+        the original behavior. For 'one-hot' and 'two-dim' encodings (2D input
+        of shape (n_snps, n_channels)), augmentation acts per SNP so that all
+        channels of a SNP are modified together — this keeps every augmented
+        sample inside the space of valid encodings.
         """
         augmented = genotype.copy()
-        
-        # Random SNP dropout
+
+        # Raw / 1D path — original behavior, unchanged.
+        if augmented.ndim == 1:
+            if 'snp_dropout' in self.augmentation_params:
+                dropout_rate = self.augmentation_params['snp_dropout']
+                mask = np.random.random(len(augmented)) > dropout_rate
+                augmented = augmented * mask
+
+            if 'noise_std' in self.augmentation_params:
+                noise_std = self.augmentation_params['noise_std']
+                noise = np.random.normal(0, noise_std, size=augmented.shape)
+                augmented = augmented + noise
+
+            if 'shuffle_regions' in self.augmentation_params:
+                n_regions = self.augmentation_params['shuffle_regions']
+                region_size = len(augmented) // n_regions
+                for i in range(n_regions):
+                    if np.random.random() < 0.1:
+                        start = i * region_size
+                        end = min((i + 1) * region_size, len(augmented))
+                        np.random.shuffle(augmented[start:end])
+
+            return augmented
+
+        # Encoded / 2D path — shape (n_snps, n_channels), act per SNP.
+        n_snps = augmented.shape[0]
+
+        # SNP dropout: zero out whole SNPs (all channels together) so the result
+        # matches how the encoder represents a missing genotype.
         if 'snp_dropout' in self.augmentation_params:
             dropout_rate = self.augmentation_params['snp_dropout']
-            mask = np.random.random(len(augmented)) > dropout_rate
-            augmented = augmented * mask
-        
-        # Add noise
-        if 'noise_std' in self.augmentation_params:
+            keep = (np.random.random(n_snps) > dropout_rate).astype(augmented.dtype)
+            augmented = augmented * keep[:, None]
+
+        # Gaussian noise: skipped for one-hot since it produces non-categorical
+        # values the model would never see at inference. Allowed for two-dim.
+        if 'noise_std' in self.augmentation_params and self.encoding != 'one-hot':
             noise_std = self.augmentation_params['noise_std']
             noise = np.random.normal(0, noise_std, size=augmented.shape)
             augmented = augmented + noise
-        
-        # Random SNP shuffling (for specific regions)
+
+        # Region shuffle: permute SNP positions within a region, carrying each
+        # SNP's channels with it (rows move together).
         if 'shuffle_regions' in self.augmentation_params:
             n_regions = self.augmentation_params['shuffle_regions']
-            region_size = len(augmented) // n_regions
+            region_size = max(1, n_snps // n_regions)
             for i in range(n_regions):
-                if np.random.random() < 0.1:  # 10% chance to shuffle each region
+                if np.random.random() < 0.1:
                     start = i * region_size
-                    end = min((i + 1) * region_size, len(augmented))
-                    np.random.shuffle(augmented[start:end])
-        
+                    end = min((i + 1) * region_size, n_snps)
+                    perm = np.random.permutation(end - start)
+                    augmented[start:end] = augmented[start:end][perm]
+
         return augmented
     
     def close(self):
@@ -333,9 +413,20 @@ class GenotypeDataModule:
         )
     
     def get_input_dim(self) -> int:
-        """Get input dimension (number of SNPs)."""
+        """Number of SNPs (length of the SNP axis)."""
         with h5py.File(self.h5_file, 'r') as f:
             return f['genotypes'].shape[1]
+
+    def get_n_channels(self) -> int:
+        """Per-SNP channel count: 1 for 'raw', 2 for 'two-dim', 3 for 'one-hot'."""
+        with h5py.File(self.h5_file, 'r') as f:
+            shape = f['genotypes'].shape
+            return shape[2] if len(shape) == 3 else 1
+
+    def get_encoding(self) -> str:
+        with h5py.File(self.h5_file, 'r') as f:
+            enc = f.attrs.get('encoding', 'raw')
+            return enc.decode('utf-8') if isinstance(enc, bytes) else enc
     
     def get_output_dim(self) -> int:
         """Get output dimension (number of phenotypes)."""

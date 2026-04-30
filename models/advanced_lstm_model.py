@@ -65,6 +65,7 @@ class AdvancedLSTM(nn.Module):
         num_genotypes: int = 3,
         wide_skip: bool = True,
         first_layer_l1: float = 0.0,
+        n_channels: int = 1
     ):
         super().__init__()
 
@@ -76,6 +77,9 @@ class AdvancedLSTM(nn.Module):
             raise ValueError(f"pool must be one of {VALID_POOLS}; got {pool}")
         if num_genotypes < 3:
             raise ValueError("num_genotypes must be >= 3")
+        if n_channels not in (1, 2, 3):
+            raise ValueError(f"n_channels must be 1, 2, or 3; got {n_channels}")
+        self.n_channels = n_channels
 
         self.task = task
         self.input_dim = input_dim
@@ -97,9 +101,18 @@ class AdvancedLSTM(nn.Module):
         self.logit_dim = 1 if task == "binary" else num_classes
 
         # ----- deep arm ------------------------------------------------ #
-        self.embedding = nn.Embedding(
-            num_embeddings=num_genotypes, embedding_dim=hidden_dim
-        )
+        # Position encoder: Embedding for raw, Linear for encoded.
+        if n_channels == 1:
+            self.position_encoder = nn.Embedding(
+                num_embeddings=num_genotypes, embedding_dim=hidden_dim
+            )
+            self._encoder_kind = "embedding"
+        else:
+            self.position_encoder = nn.Linear(n_channels, hidden_dim)
+            self._encoder_kind = "linear"
+        
+        self.embedding = self.position_encoder if n_channels == 1 else None        
+        
         self.lstm = nn.LSTM(
             input_size=hidden_dim,
             hidden_size=hidden_dim,
@@ -123,8 +136,9 @@ class AdvancedLSTM(nn.Module):
         self.deep_head = nn.Linear(hidden_dim, self.logit_dim)
 
         # ----- wide arm ------------------------------------------------ #
+        # Wide arm sized by effective input dim.
         self.wide_head = (
-            nn.Linear(input_dim, self.logit_dim) if wide_skip else None
+            nn.Linear(input_dim * n_channels, self.logit_dim) if wide_skip else None
         )
 
         # Temperature buffer (excluded from model.parameters()).
@@ -163,6 +177,10 @@ class AdvancedLSTM(nn.Module):
         if self.wide_head is not None:
             nn.init.xavier_uniform_(self.wide_head.weight)
             nn.init.zeros_(self.wide_head.bias)
+            
+        if self._encoder_kind == "linear":
+            nn.init.xavier_uniform_(self.position_encoder.weight)
+            nn.init.zeros_(self.position_encoder.bias)
 
     # ------------------------------------------------------------------ #
     # Encode / pool                                                      #
@@ -186,28 +204,57 @@ class AdvancedLSTM(nn.Module):
     # Forward / inference                                                #
     # ------------------------------------------------------------------ #
 
+    # def forward(self, x: torch.Tensor) -> torch.Tensor:
+    #     """
+    #     Returns RAW (uncalibrated) logits.
+    #         binary     -> (B, 1)
+    #         multiclass -> (B, num_classes)
+
+    #     x is expected as (B, n_snps) and used in two forms:
+    #         - integer tokens (clamped/rounded) for the deep arm,
+    #         - float dosage for the wide arm.
+    #     """
+    #     tokens = self._to_tokens(x)
+    #     embedded = self.embedding(tokens)
+    #     lstm_out, _ = self.lstm(embedded)
+    #     pooled = self._pool(lstm_out)
+    #     h = self.fc_layers(pooled)
+    #     deep_logits = self.deep_head(h)
+
+    #     if self.wide_head is not None:
+    #         x_float = x if x.is_floating_point() else x.float()
+    #         return deep_logits + self.wide_head(x_float)
+    #     return deep_logits
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Returns RAW (uncalibrated) logits.
-            binary     -> (B, 1)
-            multiclass -> (B, num_classes)
-
-        x is expected as (B, n_snps) and used in two forms:
-            - integer tokens (clamped/rounded) for the deep arm,
-            - float dosage for the wide arm.
+        Accepts:
+            (B, M)     — raw float dosage or integer tokens; n_channels must be 1.
+            (B, M, k)  — encoded, channels-last; n_channels must equal k.
         """
-        tokens = self._to_tokens(x)
-        embedded = self.embedding(tokens)
+        if self._encoder_kind == "embedding":
+            tokens = self._to_tokens(x)
+            embedded = self.position_encoder(tokens)             # (B, M, H)
+            x_flat = x if x.is_floating_point() else x.float()   # (B, M)
+        else:
+            # Encoded (B, M, k) -> per-position Linear -> (B, M, H).
+            if x.dim() != 3 or x.shape[-1] != self.n_channels:
+                raise ValueError(
+                    f"Expected (B, M, {self.n_channels}); got shape {tuple(x.shape)}"
+                )
+            x_float = x if x.is_floating_point() else x.float()
+            embedded = self.position_encoder(x_float)            # (B, M, H)
+            x_flat = x_float.flatten(start_dim=1)                # (B, M*k)
+
         lstm_out, _ = self.lstm(embedded)
         pooled = self._pool(lstm_out)
         h = self.fc_layers(pooled)
         deep_logits = self.deep_head(h)
 
         if self.wide_head is not None:
-            x_float = x if x.is_floating_point() else x.float()
-            return deep_logits + self.wide_head(x_float)
+            return deep_logits + self.wide_head(x_flat)
         return deep_logits
-
+    
     @torch.no_grad()
     def predict_proba(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -230,8 +277,14 @@ class AdvancedLSTM(nn.Module):
 
     def get_embeddings(self, x: torch.Tensor) -> torch.Tensor:
         """Pooled BiLSTM representation, before the head."""
-        tokens = self._to_tokens(x)
-        embedded = self.embedding(tokens)
+        # tokens = self._to_tokens(x)
+        # embedded = self.embedding(tokens)
+        
+        if self._encoder_kind == "embedding":
+            embedded = self.position_encoder(self._to_tokens(x))
+        else:
+            embedded = self.position_encoder(x.float() if not x.is_floating_point() else x)
+            
         lstm_out, _ = self.lstm(embedded)
         return self._pool(lstm_out)
 
@@ -241,8 +294,14 @@ class AdvancedLSTM(nn.Module):
         batch and hidden. Uses torch.autograd.grad (does not pollute
         parameter .grad).
         """
-        tokens = self._to_tokens(x)
-        embedded = self.embedding(tokens)
+        # tokens = self._to_tokens(x)
+        # embedded = self.embedding(tokens)
+        
+        if self._encoder_kind == "embedding":
+            embedded = self.position_encoder(self._to_tokens(x))
+        else:
+            embedded = self.position_encoder(x.float() if not x.is_floating_point() else x)
+            
         lstm_out, _ = self.lstm(embedded)
         pooled = self._pool(lstm_out)
         h = self.fc_layers(pooled)
@@ -278,7 +337,14 @@ class AdvancedLSTM(nn.Module):
         device = next(self.parameters()).device
         if self.first_layer_l1 <= 0.0 or self.wide_head is None:
             return torch.tensor(0.0, device=device)
-        return self.first_layer_l1 * self.wide_head.weight.abs().sum()
+        
+        W = self.wide_head.weight                                  # (logit, M*k)
+        if self.n_channels == 1:
+            return self.first_layer_l1 * W.abs().sum()
+        W_grouped = W.view(W.shape[0], self.input_dim, self.n_channels)
+        return self.first_layer_l1 * W_grouped.norm(p=2, dim=2).sum()
+         
+        # return self.first_layer_l1 * self.wide_head.weight.abs().sum()
 
     # ------------------------------------------------------------------ #
     # Loss helpers                                                       #

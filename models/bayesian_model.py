@@ -171,10 +171,12 @@ class InputCompressor(nn.Module):
         compressed_dim: int,
         n_layers: int = 1,
         dropout: float = 0.1,
+        n_channels: int = 1,
     ):
         super().__init__()
+        self.n_channels = n_channels
         layers: list[nn.Module] = []
-        dim = input_dim
+        dim = input_dim * n_channels
         for i in range(n_layers):
             out = compressed_dim if i == n_layers - 1 else max(compressed_dim, dim // 4)
             layers.extend([
@@ -187,6 +189,8 @@ class InputCompressor(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dim() == 3:
+            x = x.flatten(start_dim=1)               # (B, M*k)
         return self.net(x)
 
 
@@ -216,6 +220,7 @@ class BayesianNeuralNetwork(nn.Module):
         n_samples: int = 10,
         task: str = "regression",
         init_log_var: float = -3.0,
+        n_channels: int = 1,
     ):
         """
         Args:
@@ -237,10 +242,11 @@ class BayesianNeuralNetwork(nn.Module):
         self.output_dim = output_dim
         self.n_samples = n_samples
         self.task = task
+        self.n_channels = n_channels
 
         # --- Deterministic input compressor ---
         self.compressor = InputCompressor(
-            input_dim, compressed_dim, compressor_layers, compressor_dropout
+            input_dim, compressed_dim, compressor_layers, compressor_dropout, n_channels
         )
 
         # --- Bayesian hidden layers ---

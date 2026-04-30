@@ -706,25 +706,8 @@ class Trainer:
                 continue
 
             self.log_epoch(train_loss, train_metrics, val_loss, val_metrics)
-
-            # Save best model by loss
-            if val_loss < self.best_val_loss:
-                self.best_val_loss = val_loss
-                self.save_checkpoint(is_best=True)
-                logger.info(
-                    f"New best model saved with validation loss: {val_loss:.4f}"
-                )
-
-            # Save best model by primary metric
-            current_metric = val_metrics.get(primary_metric, 0)
-            if metric_improved(current_metric, best_metric_value):
-                best_metric_value = current_metric
-                self.save_checkpoint(is_best=True, metric=primary_metric)
-                logger.info(
-                    f"New best model saved with {primary_metric}: {current_metric:.4f}"
-                )
-
-            # Early stopping
+                 # Early stopping
+                 
             if self.check_early_stopping(val_loss):
                 logger.info(f"Early stopping triggered at epoch {epoch}")
                 # Signal other ranks to stop
@@ -733,9 +716,37 @@ class Trainer:
                     dist.broadcast(stop_tensor, src=0)
                 break
             else:
+                # Save best model by loss
+                if val_loss < self.best_val_loss:
+                    self.best_val_loss = val_loss
+                    self.save_checkpoint(is_best=True)
+                    logger.info(
+                        f"New best model saved with validation loss: {val_loss:.4f}"
+                    )
+
+                # Save best model by primary metric
+                current_metric = val_metrics.get(primary_metric, 0)
+                if metric_improved(current_metric, best_metric_value):
+                    best_metric_value = current_metric
+                    self.save_checkpoint(is_best=True, metric=primary_metric)
+                    logger.info(
+                        f"New best model saved with {primary_metric}: {current_metric:.4f}"
+                    )
+                    
                 if self.distributed:
                     stop_tensor = torch.tensor(0, device=self.device)
                     dist.broadcast(stop_tensor, src=0)
+            
+        
+            # # Early stopping
+            # if self.check_early_stopping(val_loss):
+            #     logger.info(f"Early stopping triggered at epoch {epoch}")
+            #     # Signal other ranks to stop
+            #     if self.distributed:
+            #         stop_tensor = torch.tensor(1, device=self.device)
+            #         dist.broadcast(stop_tensor, src=0)
+            #     break
+           
 
         # Non-main ranks: listen for early stopping signal
         # (handled inside the loop above via broadcast)

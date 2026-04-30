@@ -727,11 +727,13 @@ def main():
     # Get dimensions
     input_dim = data_module.get_input_dim()
     output_dim = data_module.get_output_dim()
+    n_channels = data_module.get_n_channels()
     
     # Create model
     model_config = config['model']
     model_config['input_dim'] = input_dim
     model_config['output_dim'] = output_dim
+    model_config['n_channels'] = n_channels
     
     logger.info(f"Model configuration: {model_config}")
     

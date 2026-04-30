@@ -1,4 +1,4 @@
-# MLBF-PRS: Machine Learning Model Development and Benchmarking Framework for Polygenic Risk Scores
+# BenchPRS: A benchmarking platform for machine learning-based polygenic score model development
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://python.org)
@@ -8,7 +8,7 @@ A state-of-the-art pipeline for predicting Polygenic Risk Scores (PRS) from geno
 
 ## 🚀 Features
 
-- **Deep Learning Models**: Multiple architectures (MLP, CNN, Transformer, Attention-based)
+- **Deep Learning Models**: Multiple architectures (MLP, CNN, Transformer, Attention-based, LSTM, Bayesian NN)
 - **Machine Learning Models**: SVM, XGBoost, Random Forests, ElasticNet, and more
 - **Established PRS Methods**: Comprehensive collection of proven methodologies
 - **Efficient Data Processing**: Handles large-scale PLINK format genotype data
@@ -49,13 +49,9 @@ nextflow_pipeline_prs/
 ├── run_pipelines.sh            # Main execution script
 ├── wandb/                       # Weights & Biases logs
 └── workflows/                   # Nextflow workflows
-    ├── baselinePRS.nf
-    ├── config/
     ├── dl_prs.nf
-    ├── main_integrated.nf
     ├── prs_models_pipeline.nf
     ├── qc_pipeline.nf
-    ├── qc_test.nf
     └── sklearn_pipeline.nf
 ```
 
@@ -125,16 +121,25 @@ Follow the instructions for each PRS method on their respective repositories:
 
 > **Note**: Supplemental data needs to be downloaded as explained for each method and placed into the `supplement_data` folder. LD-specific data should be placed in the `LD` subfolder.
 
-📚 **Additional Resource**: [GWAS Tutorial](https://cloufield.github.io/GWASTutorial/)
+📚 **Additional Resources**: 
+
+[GWAS Tutorial](https://cloufield.github.io/GWASTutorial/) 
+[Open Dataset](https://github.com/comorment/opensnp) 
+
 
 ## 🚦 Usage
 
 ### 1. Prepare Your Data
 
-Place your PLINK files in the `data/` directory:
+Place your PLINK files in the `data/` directory inside a folder with the same prefix:
 - `genotypes.bed` - Binary genotype file
 - `genotypes.bim` - SNP information  
 - `genotypes.fam` - Sample information
+- `genotypes.pheno` - Outcome with column named phenotype
+
+Place your summmary statistics file in the `data/supplement_data/sum_stats` file, BenchPRS assumes the following format:
+
+`CHR	BP	SNP	A1	A2	N	SE	P	OR/BETA INFO	MAF`
 
 ### 2. Configure the Pipeline
 
@@ -161,7 +166,7 @@ nextflow run workflows/qc_pipeline.nf -params-file workflows/config/params_qc.ya
 nextflow run workflows/prs_models_pipeline.nf -params-file workflows/config/params_prs.yaml
 
 # Deep Learning Models
-nextflow run workflows/dl_prs.nf --params-file workflows/config/dl_config.yaml
+nextflow run workflows/dl_prs.nf -params-file workflows/config/dl_config.yaml
 
 # Scikit-learn Models
 nextflow run workflows/sklearn_pipeline.nf -params-file workflows/config/sklearn_config.yaml

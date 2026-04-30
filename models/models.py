@@ -70,6 +70,7 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
         >>> config = {
         ...     'model_type': 'mlp',
         ...     'input_dim': 100000,
+        ...     'n_channels': 1,
         ...     'output_dim': 1,
         ...     'hidden_dims': [1024, 512, 256],
         ...     'dropout_rate': 0.3
@@ -81,6 +82,7 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
     # Extract common parameters
     input_dim = config.get('input_dim')
     output_dim = config.get('output_dim')
+    n_channels = config.get('n_channels', 1)  # Default to 1 channel for CNNs
     
     if not input_dim or not output_dim:
         raise ValueError("input_dim and output_dim must be specified in config")
@@ -144,6 +146,7 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
             n_samples=config.get('n_samples', 10),
             task=config.get('task', 'binary'),
             init_log_var=config.get('init_log_var', -3.0),
+            n_channels=n_channels,
         )
     
     elif model_type == 'point_transformer':
@@ -208,7 +211,9 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
             activation=config.get('activation', 'relu'),
             norm=config.get('norm', 'batch'),
             wide_skip=config.get('wide_skip', True),
-            first_layer_l1=config.get('first_layer_l1', 0.0)
+            first_layer_l1=config.get('first_layer_l1', 0.0),
+            n_channels=n_channels
+            
         )
         
     elif model_type == 'advanced_cnn':
@@ -223,9 +228,9 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
             dropout_rate=config.get('dropout_rate', 0.3),
             norm=config.get('norm', 'batch'),
             pool_type=config.get('pool_type', 'max'),
-            in_channels=config.get('in_channels', 1),
             wide_skip=config.get('wide_skip', True),
-            first_layer_l1=config.get('first_layer_l1', 0.0)
+            first_layer_l1=config.get('first_layer_l1', 0.0),
+            n_channels=n_channels
         )
     
     elif model_type == 'advanced_lstm':
@@ -239,7 +244,8 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
             pool=config.get('pool', 'mean'),
             num_genotypes=config.get('num_genotypes', 3),
             wide_skip=config.get('wide_skip', True),
-            first_layer_l1=config.get('first_layer_l1', 0.0)
+            first_layer_l1=config.get('first_layer_l1', 0.0),
+            n_channels=n_channels
         )
     
     else:
@@ -382,7 +388,10 @@ def get_model_info(model_type: str) -> Dict[str, Any]:
                 'hidden_dims': [1024, 512, 256],
                 'dropout_rate': 0.3,
                 'activation': 'relu',
-                'batch_norm': True
+                'batch_norm': True,
+                'wide_skip': True,
+                'first_layer_l1': 0.0,
+                'n_channels': 1
             }
         },
         'advanced_cnn': {
@@ -396,7 +405,7 @@ def get_model_info(model_type: str) -> Dict[str, Any]:
                 'dropout_rate': 0.3,
                 'norm': 'batch',
                 'pool_type': 'max',
-                'in_channels': 1
+                'n_channels': 1
             }
         },
         'advanced_lstm': {

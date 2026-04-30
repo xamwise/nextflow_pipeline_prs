@@ -176,14 +176,14 @@ def get_search_space(model_type, trial, is_classification=False):
             # ElasticNet classification via LogisticRegression
             return {
                 'C': trial.suggest_float('C', 1e-4, 10, log=True),
-                'l1_ratio': trial.suggest_float('l1_ratio', 0.1, 0.9),
-                'max_iter': trial.suggest_int('max_iter', 100, 5000),
+                'l1_ratio': trial.suggest_float('l1_ratio', 0.1, 0.99),
+                'max_iter': trial.suggest_int('max_iter', 100, 10000),
                 'fit_intercept': trial.suggest_categorical('fit_intercept', [True, False])
             }
         else:
             return {
                 'alpha': trial.suggest_float('alpha', 1e-4, 10, log=True),
-                'l1_ratio': trial.suggest_float('l1_ratio', 0.1, 0.9),
+                'l1_ratio': trial.suggest_float('l1_ratio', 0.1, 0.99),
                 'max_iter': trial.suggest_int('max_iter', 100, 5000),
                 'selection': trial.suggest_categorical('selection', ['cyclic', 'random']),
                 'fit_intercept': trial.suggest_categorical('fit_intercept', [True, False])
@@ -191,11 +191,11 @@ def get_search_space(model_type, trial, is_classification=False):
     
     elif model_type == 'rf':
         params = {
-            'n_estimators': trial.suggest_int('n_estimators', 50, 500),
-            'max_depth': trial.suggest_int('max_depth', 3, 20),
-            'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
-            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 10),
-            'max_features': trial.suggest_categorical('max_features', ['sqrt', 'log2', 0.5, 0.8]),
+            'n_estimators': trial.suggest_int('n_estimators', 50, 5000),
+            'max_depth': trial.suggest_int('max_depth', 3, 15),
+            'min_samples_split': trial.suggest_int('min_samples_split', 2, 40),
+            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 20),
+            'max_features': trial.suggest_categorical('max_features', ['sqrt', 'log2', 0.2, 0.5, 0.8]),
             'bootstrap': trial.suggest_categorical('bootstrap', [True, False])
         }
         if is_classification:
@@ -222,10 +222,10 @@ def get_search_space(model_type, trial, is_classification=False):
     
     elif model_type == 'xgboost':
         params = {
-            'n_estimators': trial.suggest_int('n_estimators', 50, 500),
-            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
-            'max_depth': trial.suggest_int('max_depth', 3, 12),
-            'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
+            'n_estimators': trial.suggest_int('n_estimators', 50, 5000),
+            'learning_rate': trial.suggest_float('learning_rate', 0.0001, 0.3, log=True),
+            'max_depth': trial.suggest_int('max_depth', 2, 9),
+            'min_child_weight': trial.suggest_int('min_child_weight', 1, 15),
             'subsample': trial.suggest_float('subsample', 0.5, 1.0),
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
             'gamma': trial.suggest_float('gamma', 0, 1),
@@ -295,10 +295,7 @@ def get_search_space(model_type, trial, is_classification=False):
         elif kernel == 'poly':
             params['degree'] = trial.suggest_int('degree', 2, 5)
             params['gamma'] = trial.suggest_categorical('gamma', ['scale', 'auto'])
-        
-        if is_classification:
-            params['probability'] = True  # Enable probability predictions for AUC
-        
+            
         return params
     
     elif model_type == 'linear_svm':

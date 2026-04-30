@@ -173,6 +173,7 @@ class AdvancedMLP(nn.Module):
         norm: str = "batch",        # "batch" | "layer" | "none"
         wide_skip: bool = True,
         first_layer_l1: float = 0.0,
+        n_channels: int = 1
     ):
         super().__init__()
 
@@ -190,6 +191,12 @@ class AdvancedMLP(nn.Module):
         self.first_layer_l1 = float(first_layer_l1)
         self.activation_name = activation
         self.norm_type = norm
+        
+        if n_channels not in (1, 2, 3):
+            raise ValueError(f"n_channels must be 1, 2, or 3; got {n_channels}")
+        self.n_channels = n_channels
+        effective_dim = input_dim * n_channels
+        
 
         # Single logit for binary; one per class for multiclass.
         self.logit_dim = 1 if task == "binary" else num_classes
@@ -204,7 +211,7 @@ class AdvancedMLP(nn.Module):
 
         # Build deep arm.
         layers: List[nn.Module] = []
-        prev_dim = input_dim
+        prev_dim = effective_dim
         for h in hidden_dims:
             layers.append(nn.Linear(prev_dim, h))
             if norm == "batch":
@@ -220,7 +227,7 @@ class AdvancedMLP(nn.Module):
 
         # Wide arm: input -> logits.
         self.wide_head = (
-            nn.Linear(input_dim, self.logit_dim) if wide_skip else None
+            nn.Linear(effective_dim, self.logit_dim) if wide_skip else None
         )
 
         # Temperature for post-hoc scaling. Stored as a buffer so it is NOT
@@ -275,6 +282,10 @@ class AdvancedMLP(nn.Module):
             binary     -> (B, 1)
             multiclass -> (B, num_classes)
         """
+        if x.dim() == 3:
+            # Reshape (B, input_dim, n_channels) -> (B, input_dim * n_channels)
+            x = x.flatten(start_dim=1)
+        
         deep_logits = self.deep_head(self.feature_extractor(x))
         if self.wide_head is not None:
             return deep_logits + self.wide_head(x)
@@ -321,8 +332,13 @@ class AdvancedMLP(nn.Module):
         device = next(self.parameters()).device
         if self.first_layer_l1 <= 0.0:
             return torch.tensor(0.0, device=device)
-        first_linear = self.feature_extractor[0]
-        return self.first_layer_l1 * first_linear.weight.abs().sum()
+        
+        W = self.feature_extractor[0].weight                       # (hidden, M*k)
+        if self.n_channels == 1:
+            return self.first_layer_l1 * W.abs().sum()
+        # Group lasso: ||W[:, m, :]||_2 summed over (hidden, m).
+        W_grouped = W.view(W.shape[0], self.input_dim, self.n_channels)
+        return self.first_layer_l1 * W_grouped.norm(p=2, dim=2).sum()
 
     # ------------------------------------------------------------------ #
     # Loss helpers                                                       #

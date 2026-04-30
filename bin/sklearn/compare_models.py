@@ -159,7 +159,8 @@ def _mcnemar_test(y_true: np.ndarray,
     # Use continuity-corrected form; fall back if b+c is too small
     if b + c < 25:
         # Exact binomial test (two-sided)
-        p_value = stats.binom_test(b, b + c, 0.5) if (b + c) > 0 else 1.0
+        result = stats.binomtest(b, b + c, 0.5) if (b + c) > 0 else 1.0
+        p_value = result.pvalue
         chi2 = np.nan
     else:
         chi2 = (abs(b - c) - 1) ** 2 / (b + c)

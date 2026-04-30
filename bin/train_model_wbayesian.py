@@ -148,7 +148,7 @@ class Trainer:
         elif opt_type == 'adamw':
             return optim.AdamW(
                 params, lr=opt_config['lr'],
-                weight_decay=opt_config.get('weight_decay', 0.01)
+                weight_decay=opt_config.get('weight_decay', 0.0)
             )
         elif opt_type == 'sgd':
             return optim.SGD(
@@ -530,10 +530,28 @@ class Trainer:
             
             self.log_epoch(train_loss, train_metrics, val_loss, val_metrics)
             
-            if val_loss < self.best_val_loss:
-                self.best_val_loss = val_loss
-                self.save_checkpoint(is_best=True)
-                logger.info(f"New best model saved with validation loss: {val_loss:.4f}")
+            if self.current_epoch > self.kl_warmup_epochs and self.is_bayesian:
+                logger.info(f"Epoch {epoch} is larger than {self.kl_warmup_epochs}: Starting early stopping checks based on validation loss for Bayesian model.")
+                if self.check_early_stopping(val_loss):
+                    logger.info(f"Early stopping triggered at epoch {epoch}")
+                    break
+                    
+                if val_loss < self.best_val_loss:
+                    self.best_val_loss = val_loss
+                    self.save_checkpoint(is_best=True)
+                    logger.info(f"New best model saved with validation loss: {val_loss:.4f}")
+                    
+            elif not self.is_bayesian:
+                if self.check_early_stopping(val_loss):
+                    logger.info(f"Early stopping triggered at epoch {epoch}")
+                    break
+                
+                if val_loss < self.best_val_loss:
+                    self.best_val_loss = val_loss
+                    self.save_checkpoint(is_best=True)
+                    logger.info(f"New best model saved with validation loss: {val_loss:.4f}")
+
+   
             
             current_metric = val_metrics.get(primary_metric, 0)
             if metric_improved(current_metric, best_metric_value):
@@ -541,9 +559,7 @@ class Trainer:
                 self.save_checkpoint(is_best=True, metric=primary_metric)
                 logger.info(f"New best model saved with {primary_metric}: {current_metric:.4f}")
             
-            if self.check_early_stopping(val_loss):
-                logger.info(f"Early stopping triggered at epoch {epoch}")
-                break
+       
         
         self.save_checkpoint(is_best=False, final=True)
 

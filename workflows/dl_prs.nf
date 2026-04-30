@@ -10,11 +10,11 @@ nextflow.enable.dsl=2
 // input_plink = "${params.base_dir}/data/raw/UKB_ALZ/UKB_ALZ"
 // phenotype_file = "${params.base_dir}/data/raw/UKB_ALZ/UKB_ALZ.pheno"  // Optional, if phenotype not in PLINK
 
-outdir = "${params.base_dir}/out"
-config = "${params.base_dir}/workflows/config/training_config.yaml"
+params.outdir = "${params.base_dir_parse}/out"
+params.config = "${params.base_dir_parse}/workflows/config/training_config.yaml"
 
-input_plink = "${params.base_dir}/${params.input_plink}"
-phenotype_file = "${params.base_dir}/${params.phenotype_file}"
+params.input_plink = "${params.base_dir_parse}/${params.input_plink_parse}"
+params.phenotype_file = "${params.base_dir_parse}/${params.phenotype_file_parse}"
 
 // // Data reuse parameters (lessons from sklearn pipeline)
 // params.data_reuse = [:]
@@ -47,7 +47,7 @@ phenotype_file = "${params.base_dir}/${params.phenotype_file}"
 
 // Process definitions remain mostly the same but with params.base_dir
 process CONVERT_PLINK {
-    publishDir "${outdir}/processed_data", mode: 'copy'
+    publishDir "${params.outdir}/processed_data", mode: 'copy'
     
     input:
     path plink_prefix
@@ -60,16 +60,17 @@ process CONVERT_PLINK {
     script:
     """
     python ${params.base_dir}/bin/plink_converter.py \
-        --plink_prefix ${input_plink} \
+        --plink_prefix ${params.input_plink} \
         --output_h5 genotype_data.h5 \
         --output_pheno phenotypes.csv \
         --stats_file data_stats.json \
-        --phenotype_file ${phenotype_file}
+        --phenotype_file ${params.phenotype_file} \
+        --encoding ${params.encoding}
     """
 }
 
 process SPLIT_DATA {
-    publishDir "${outdir}/data_splits", mode: 'copy'
+    publishDir "${params.outdir}/data_splits", mode: 'copy'
     
     input:
     path genotype_data
@@ -95,7 +96,7 @@ process SPLIT_DATA {
 }
 
 process VISUALIZE_DATA {
-    publishDir "${outdir}/visualizations", mode: 'copy'
+    publishDir "${params.outdir}/visualizations", mode: 'copy'
     
     input:
     path genotype_data
@@ -121,7 +122,7 @@ process VISUALIZE_DATA {
 }
 
 process HYPERPARAMETER_OPTIMIZATION {
-    publishDir "${outdir}/hyperparameter_search", mode: 'copy'
+    publishDir "${params.outdir}/hyperparameter_search", mode: 'copy'
     
     input:
     path genotype_data
@@ -145,7 +146,7 @@ process HYPERPARAMETER_OPTIMIZATION {
         --phenotype_file ${phenotypes} \
         --splits_file ${splits} \
         --indices_file ${indices} \
-        --config ${config} \
+        --config ${params.config} \
         --n_trials ${params.hyperopt.n_trials} \
         --output_params best_params.yaml \
         --study_db optuna_study.db \
@@ -155,7 +156,7 @@ process HYPERPARAMETER_OPTIMIZATION {
 
 process TRAIN_KFOLD {
     tag "fold_${fold}"
-    publishDir "${outdir}/models/fold_${fold}", mode: 'copy'
+    publishDir "${params.outdir}/models/fold_${fold}", mode: 'copy'
     
     input:
     tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file)
@@ -190,7 +191,7 @@ process TRAIN_KFOLD {
 
 process TRAIN_KFOLD_BAYESIAN {
     tag "fold_${fold}"
-    publishDir "${outdir}/models/fold_${fold}", mode: 'copy'
+    publishDir "${params.outdir}/models/fold_${fold}", mode: 'copy'
     
     input:
     tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file)
@@ -226,7 +227,7 @@ process TRAIN_KFOLD_BAYESIAN {
 
 process TRAIN_KFOLD_MULTI_GPU {
     tag "fold_${fold}"
-    publishDir "${outdir}/models/fold_${fold}", mode: 'copy'
+    publishDir "${params.outdir}/models/fold_${fold}", mode: 'copy'
     
     input:
     tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file)
@@ -265,7 +266,7 @@ process TRAIN_KFOLD_MULTI_GPU {
 
 
 process EVALUATE_MODELS {
-    publishDir "${outdir}/evaluation", mode: 'copy'
+    publishDir "${params.outdir}/evaluation", mode: 'copy'
     
     input:
     path models
@@ -297,7 +298,7 @@ process EVALUATE_MODELS {
 
 // Main workflow
 workflow {
-    config_ch = Channel.fromPath(config)
+    config_ch = Channel.fromPath(params.config)
     
     // Step 1: Convert PLINK or use existing converted data
     if (params.data_reuse.use_existing_converted && 
@@ -309,7 +310,7 @@ workflow {
         stats_data = Channel.empty()  // Stats might not exist for reused data
         
     } else {
-        plink_ch = Channel.fromPath(input_plink)
+        plink_ch = Channel.fromPath(params.input_plink)
         CONVERT_PLINK(plink_ch)
         genotype_data = CONVERT_PLINK.out.genotype_data
         phenotype_data = CONVERT_PLINK.out.phenotypes
@@ -396,5 +397,5 @@ workflow {
 workflow.onComplete {
     println "Pipeline completed at: $workflow.complete"
     println "Execution status: ${ workflow.success ? 'OK' : 'failed' }"
-    println "Results saved to: ${outdir}"
+    println "Results saved to: ${params.outdir}"
 }

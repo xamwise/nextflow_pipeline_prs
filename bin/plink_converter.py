@@ -16,11 +16,54 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def encode_genotypes(genotypes: np.ndarray,
+                     encoding: str
+                     ) -> np.ndarray:
+    """
+    Encode a (n_samples, n_snps) genotype matrix.
+
+    Input values follow pandas-plink convention: count of A1 (alt/risk) allele
+    in {0, 1, 2}, with NaN for missing.
+
+    Returns:
+        'raw'     -> (n_samples, n_snps)            float32
+        'one-hot' -> (n_samples, n_snps, 3)         float32; missing = all zeros
+        'two-dim' -> (n_samples, n_snps, 2)         float32; [n_ref, n_alt],
+                                                    missing = (0, 0)
+    """
+    if encoding == 'raw':
+        return genotypes.astype(np.float32)
+
+    missing_mask = np.isnan(genotypes)
+    # Replace NaN with 0 so we can cast to int safely; we'll zero these out at the end.
+    g_int = np.where(missing_mask, 0, genotypes).astype(np.int8)
+
+    if encoding == 'two-dim':
+        n_alt = g_int.astype(np.float32)
+        n_ref = (2 - g_int).astype(np.float32)
+        encoded = np.stack([n_ref, n_alt], axis=-1)        # (N, M, 2)
+        encoded[missing_mask] = 0.0
+        return encoded
+
+    if encoding == 'one-hot':
+        n_samples, n_snps = g_int.shape
+        encoded = np.zeros((n_samples, n_snps, 3), dtype=np.float32)
+        for v in range(3):
+            encoded[..., v] = (g_int == v).astype(np.float32)
+        encoded[missing_mask] = 0.0
+        return encoded
+
+    raise ValueError(
+        f"Unknown encoding: {encoding!r}. Must be 'raw', 'one-hot', or 'two-dim'."
+    )
+
+
 def convert_plink_to_h5(
     plink_prefix: str,
     output_h5: str,
     output_pheno: str,
-    phenotype_file: Optional[str] = None
+    phenotype_file: Optional[str] = None,
+    encoding: str = 'raw',
 ) -> Dict[str, Any]:
     """
     Convert PLINK files to HDF5 format.
@@ -30,6 +73,7 @@ def convert_plink_to_h5(
         output_h5: Output HDF5 file path
         output_pheno: Output phenotype CSV file path
         phenotype_file: Optional separate phenotype file path
+        encoding: Genotype encoding format ('raw', 'one-hot', 'two-dim')
         
     Returns:
         Dictionary of data statistics
@@ -80,6 +124,12 @@ def convert_plink_to_h5(
         'min_genotype': float(np.nanmin(genotypes)),
         'max_genotype': float(np.nanmax(genotypes))
     }
+    
+    logger.info(f"Encoding genotypes using scheme: {encoding}")
+    genotypes = encode_genotypes(genotypes, encoding)
+    logger.info(f"Encoded genotype tensor shape: {genotypes.shape}")
+    stats['encoding'] = encoding
+    stats['encoded_shape'] = list(genotypes.shape)
     
     # Save to HDF5
     logger.info(f"Saving to HDF5: {output_h5}")
@@ -136,6 +186,8 @@ def convert_plink_to_h5(
         # Save metadata
         f.attrs['n_samples'] = stats['n_samples']
         f.attrs['n_snps'] = stats['n_snps']
+        f.attrs['encoding'] = encoding                    # 'raw' | 'one-hot' | 'two-dim'
+        f.attrs['encoded_shape'] = np.array(genotypes.shape, dtype=np.int64)
     
     # Handle phenotypes
     logger.info(f"Saving phenotypes to: {output_pheno}")
@@ -268,6 +320,12 @@ def main():
                         help='Output statistics JSON file')
     parser.add_argument('--phenotype_file', type=str, default=None,
                         help='Optional separate phenotype file (if not in .fam file)')
+    parser.add_argument('--encoding', type=str, default='raw',
+                        choices=['raw', 'one-hot', 'two-dim'],
+                        help="Genotype encoding: 'raw' (N x M, values 0/1/2/NaN), "
+                             "'one-hot' (N x M x 3), or 'two-dim' (N x M x 2 as "
+                             "[n_ref, n_alt], missing = (0, 0)).")
+    
     
     args = parser.parse_args()
     
@@ -276,7 +334,8 @@ def main():
         plink_prefix=args.plink_prefix,
         output_h5=args.output_h5,
         output_pheno=args.output_pheno,
-        phenotype_file=args.phenotype_file
+        phenotype_file=args.phenotype_file,
+        encoding=args.encoding
     )
     
     # Save statistics

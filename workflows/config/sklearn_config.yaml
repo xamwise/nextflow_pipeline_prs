@@ -2,7 +2,7 @@
 
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
 # input_plink_sklearn: /data/qc/UKB_BRC.QC  # PLINK file prefix
-input_plink_sklearn: /data/raw/UKB_BRC/UKB_BRC_filtered_3 # PLINK file prefix
+input_plink_sklearn: /data/raw/UKB_BRC/UKB_BRC_filtered_13 # PLINK file prefix
 input_phenotype_file: /data/raw/UKB_BRC/UKB_BRC.pheno  # Phenotype CSV file
 
 # Data preprocessing
@@ -13,6 +13,7 @@ data:
   scaling: false
   scale_method: 'standard'  # standard, minmax, robust
   auto_detect_task: true  # Automatically detect classification vs regression
+  encoding: "raw"  # Genotype encoding: 'raw', 'one-hot', 'two-dim'
 
 # Add this section to your config file
 data_reuse:
@@ -77,10 +78,10 @@ models:
     enabled: true
     name: 'Random Forest'
     optimize: true
-    n_trials: 10
+    n_trials: 50
     default_params:
       n_estimators: 500
-      max_depth: 20
+      max_depth: 50
       min_samples_split: 10
       class_weight: 'balanced'  # For classification
       bootstrap: True
@@ -100,7 +101,7 @@ models:
     enabled: true
     name: 'XGBoost'
     optimize: true
-    n_trials: 10
+    n_trials: 50
     default_params:
       n_estimators: 5000
       learning_rate: 0.01
@@ -110,12 +111,12 @@ models:
     enabled: true
     name: 'Support Vector Machine'
     optimize: true
-    n_trials: 5
+    n_trials: 50
     default_params:
       kernel: 'rbf'  # linear, rbf, poly
 
   linear_svm:
-    enabled: true
+    enabled: false
     name: 'Linear SVM'
     optimize: true
     n_trials: 5
@@ -141,10 +142,10 @@ training:
 
 # Hyperparameter optimization
 hyperopt:
-  enabled: false
+  enabled: true
   framework: 'optuna'
-  n_trials_default: 5
-  timeout: 600  # Max time in seconds per model
+  n_trials_default: 50
+  timeout: 3600  # Max time in seconds per model
   n_jobs: -1
   pruning: true
   sampler: 'tpe'
@@ -203,7 +204,7 @@ logging:
 
 # Output settings
 output:
-  save_models: true
+  save_models: false
   save_predictions: true
   save_preprocessor: true
   model_format: 'pickle'

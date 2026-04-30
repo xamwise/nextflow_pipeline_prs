@@ -4,7 +4,7 @@ AdvancedCNN for classification PRS prediction.
 The CNN counterpart to AdvancedMLP. Same three improvements over a vanilla
 classification CNN:
 
-1. Wide-and-deep architecture: a Linear(in_channels * input_dim -> logits)
+1. Wide-and-deep architecture: a Linear(n_channels * input_dim -> logits)
    skip runs in parallel with the deep CNN. Guarantees the model can recover
    logistic regression on the raw genotype vector when the deep arm doesn't
    help. For genomics this is a non-trivial floor -- linear PRS methods
@@ -72,9 +72,9 @@ class AdvancedCNN(nn.Module):
         dropout_rate: float = 0.3,
         norm: str = "batch",            # "batch" | "group" | "none"
         pool_type: str = "max",         # "max" | "avg"
-        in_channels: int = 1,
+        n_channels: int = 1,
         wide_skip: bool = True,
-        first_layer_l1: float = 0.0,
+        first_layer_l1: float = 0.0
     ):
         super().__init__()
 
@@ -90,13 +90,13 @@ class AdvancedCNN(nn.Module):
             raise ValueError(f"norm must be 'batch'|'group'|'none'; got {norm}")
         if pool_type not in ("max", "avg"):
             raise ValueError(f"pool_type must be 'max' or 'avg'; got {pool_type}")
-        if in_channels < 1:
-            raise ValueError("in_channels must be >= 1")
+        if n_channels not in (1, 2, 3):
+            raise ValueError(f"n_channels must be 1, 2, or 3; got {n_channels}")
 
         self.task = task
         self.input_dim = input_dim
         self.num_classes = num_classes
-        self.in_channels = in_channels
+        self.n_channels = n_channels
         self.wide_skip_enabled = wide_skip
         self.first_layer_l1 = float(first_layer_l1)
         self.norm_type = norm
@@ -109,7 +109,7 @@ class AdvancedCNN(nn.Module):
 
         # ----- conv stack ---------------------------------------------- #
         conv_layers: List[nn.Module] = []
-        c_in = in_channels
+        c_in = n_channels
         current_len = input_dim
         for c_out, k, p in zip(channels, kernel_sizes, pool_sizes):
             conv_layers.append(nn.Conv1d(c_in, c_out, k, padding=k // 2))
@@ -152,7 +152,7 @@ class AdvancedCNN(nn.Module):
 
         # Wide arm: linear over flattened raw input.
         self.wide_head = (
-            nn.Linear(in_channels * input_dim, self.logit_dim)
+            nn.Linear(n_channels * input_dim, self.logit_dim)
             if wide_skip else None
         )
 
@@ -207,15 +207,18 @@ class AdvancedCNN(nn.Module):
             binary     -> (B, 1)
             multiclass -> (B, num_classes)
 
-        Accepts (B, n_snps) for in_channels=1 or (B, in_channels, n_snps) for
+        Accepts (B, n_snps) for n_channels=1 or (B, n_snps, n_channels) for
         multi-channel input.
         """
         if x.dim() == 2:
-            x_conv = x.unsqueeze(1)
+            x_conv = x.unsqueeze(1)                    # (B, 1, M)
             x_flat = x
+        elif x.dim() == 3:
+            # (B, M, k) -> (B, k, M) for Conv1d.
+            x_conv = x.transpose(1, 2).contiguous()
+            x_flat = x.flatten(start_dim=1)            # (B, M*k)
         else:
-            x_conv = x
-            x_flat = x.flatten(start_dim=1)
+            raise ValueError(f"Expected x.dim() in (2, 3); got {x.dim()}")
 
         h = self.conv_layers(x_conv)
         h = h.flatten(start_dim=1)
@@ -255,6 +258,9 @@ class AdvancedCNN(nn.Module):
         """Conv features before FC layers, shape (B, C_last, L_last)."""
         if x.dim() == 2:
             x = x.unsqueeze(1)
+        elif x.dim() == 3:
+            x = x.transpose(1, 2).contiguous()
+        
         return self.conv_layers(x)
 
     def get_receptive_field(self) -> int:

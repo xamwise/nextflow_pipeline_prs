@@ -37,7 +37,8 @@ process CONVERT_PLINK_SKLEARN {
         --output_h5 genotype_data.h5 \
         --output_pheno phenotypes.csv \
         --stats_file data_stats.json \
-        --phenotype_file ${params.base_dir}${params.input_phenotype_file}
+        --phenotype_file ${params.base_dir}${params.input_phenotype_file} \
+        --encoding ${params.data.encoding}
     """
 }
 
