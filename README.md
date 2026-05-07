@@ -59,7 +59,7 @@ nextflow_pipeline_prs/
 
 ### Prerequisites
 
-- **Nextflow** (version 21.04+)
+- **Nextflow** (version  > 21.04+, < 26.04 ), build on 24.10.4 can be installed via `conda install bioconda::nextflow==24.10.4`
 - **Python** 3.8+
 - **CUDA** 11.0+ (for GPU support, optional)
 

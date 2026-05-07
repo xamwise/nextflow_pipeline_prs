@@ -247,11 +247,13 @@ def evaluate_ensemble(models: list, X_test: np.ndarray, y_test: np.ndarray) -> t
     """
     all_predictions = []
     all_probabilities = []
+    per_model_metrics = []
     is_classification = detect_task_type(y_test, models[0] if models else None)
     
     for model_data in models:
-        y_pred, _, _, y_pred_proba = evaluate_single_model(model_data, X_test, y_test)
+        y_pred, m, _, y_pred_proba = evaluate_single_model(model_data, X_test, y_test)
         all_predictions.append(y_pred)
+        per_model_metrics.append(m)
         if y_pred_proba is not None:
             all_probabilities.append(y_pred_proba)
     
@@ -283,6 +285,13 @@ def evaluate_ensemble(models: list, X_test: np.ndarray, y_test: np.ndarray) -> t
     metrics_ensemble = calculate_metrics(y_test, y_pred_ensemble, 
                                         y_pred_proba_ensemble, is_classification)
     
+    def _agg(key):
+        vals = [m[key] for m in per_model_metrics if key in m]
+        if vals:
+            metrics_ensemble[f'{key}_mean'] = float(np.mean(vals))
+            metrics_ensemble[f'{key}_std']  = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+            metrics_ensemble[f'{key}_per_fold'] = [float(v) for v in vals]
+    
     # Add ensemble-specific metrics
     if is_classification:
         # For classification, calculate agreement between models
@@ -290,9 +299,13 @@ def evaluate_ensemble(models: list, X_test: np.ndarray, y_test: np.ndarray) -> t
         agreement = np.mean([np.all(all_preds_array[:, i] == all_preds_array[0, i]) 
                             for i in range(all_preds_array.shape[1])])
         metrics_ensemble['model_agreement'] = float(agreement)
+        for k in ('roc_auc', 'pr_auc', 'accuracy', 'f1', 'precision', 'recall'):
+            _agg(k)
     else:
         # For regression, calculate standard deviation of predictions
         metrics_ensemble['prediction_std'] = float(np.std(all_predictions, axis=0).mean())
+        for k in ('r2', 'rmse', 'mae', 'pearson_r'):
+            _agg(k)
     
     metrics_ensemble['n_models'] = len(models)
     
@@ -786,11 +799,15 @@ def main():
         print(f"Recall: {metrics.get('recall', 0):.4f}")
         print(f"ROC-AUC: {metrics.get('roc_auc', 0):.4f}")
         print(f"PR-AUC: {metrics.get('pr_auc', 0):.4f}")
+        if 'roc_auc_mean' in metrics:
+            print(f"ROC-AUC across folds: {metrics['roc_auc_mean']:.4f} ± {metrics['roc_auc_std']:.4f}")
     else:
         print(f"R² Score: {metrics['r2']:.4f}")
         print(f"RMSE: {metrics['rmse']:.4f}")
         print(f"MAE: {metrics['mae']:.4f}")
         print(f"Pearson r: {metrics['pearson_r']:.4f} (p={metrics['pearson_p']:.2e})")
+        if 'r2_mean' in metrics:
+            print(f"R² across folds: {metrics['r2_mean']:.4f} ± {metrics['r2_std']:.4f}")
     
     print("="*50)
 

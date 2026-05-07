@@ -23,7 +23,7 @@ from nagelkerke_r2 import calculate_nagelkerke_r2
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bin.genotype_dataset import GenotypeDataModule
-from models import create_model, GenotypeEnsembleModel
+from models import create_model, GenotypeEnsembleModel, BayesianNeuralNetwork
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -105,59 +105,154 @@ class PRSEvaluator:
     
         return 'regression'
     
+    def _model_predict(self, model, x, n_samples_bnn: int = 30):
+        """
+        Unified prediction interface. Returns (point_prediction, aux_dict).
+        aux_dict may contain 'epistemic_std', 'aleatoric_std', 'log_var' when available.
+        """
+        aux = {}
+
+        # Case 1: BNN — use proper MC inference
+        if isinstance(model, BayesianNeuralNetwork):
+            mean, ep_std, al_std = model.predict_with_uncertainty(x, n_samples=n_samples_bnn)
+            if model.task == "binary":
+                # predict_with_uncertainty already applies sigmoid; convert back to logit-space
+                # if downstream code expects logits, or just return probs and skip the sigmoid later
+                point = mean  # probabilities
+                aux['is_probability'] = True
+            else:
+                point = mean
+            aux['epistemic_std'] = ep_std
+            aux['aleatoric_std'] = al_std
+            return point, aux
+
+        # Case 2: Generic model — may return tensor, tuple, or dict
+        out = model(x)
+        if isinstance(out, (tuple, list)):
+            point = out[0]
+            if len(out) > 1 and torch.is_tensor(out[1]):
+                aux['log_var'] = out[1]
+        elif isinstance(out, dict):
+            for k in ('mean', 'pred', 'prediction', 'logits', 'output'):
+                if k in out:
+                    point = out[k]
+                    break
+            else:
+                raise ValueError(f"Unrecognized dict output keys: {list(out.keys())}")
+        else:
+            point = out
+
+        return point, aux
+    
     def calculate_nagelkerke_r2(self, predictions: np.ndarray, targets: np.ndarray) -> float:
         """Calculate Nagelkerke R2 for binary classification."""
         return calculate_nagelkerke_r2(predictions, targets)
     
-    def evaluate_single_model(
-        self,
-        model: nn.Module,
-        data_loader: torch.utils.data.DataLoader,
-        return_features: bool = False
-    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
-        """
-        Evaluate a single model for PRS prediction.
+    # def evaluate_single_model(
+    #     self,
+    #     model: nn.Module,
+    #     data_loader: torch.utils.data.DataLoader,
+    #     return_features: bool = False
+    # ) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
+    #     """
+    #     Evaluate a single model for PRS prediction.
         
-        Args:
-            model: Model to evaluate
-            data_loader: Data loader for evaluation
-            return_features: Whether to return intermediate features
+    #     Args:
+    #         model: Model to evaluate
+    #         data_loader: Data loader for evaluation
+    #         return_features: Whether to return intermediate features
             
-        Returns:
-            Tuple of (predictions, targets, metrics)
-        """
-        model.eval()
-        all_predictions = []
-        all_targets = []
-        all_features = []
+    #     Returns:
+    #         Tuple of (predictions, targets, metrics)
+    #     """
+    #     model.eval()
+    #     all_predictions = []
+    #     all_targets = []
+    #     all_features = []
         
+    #     with torch.no_grad():
+    #         for genotypes, phenotypes in data_loader:
+    #             genotypes = genotypes.to(self.device)
+    #             phenotypes = phenotypes.to(self.device)
+                
+    #             # Get predictions
+    #             predictions = model(genotypes)
+                
+                
+                
+    #             if isinstance(predictions, (tuple, list)):
+    #                 predictions = predictions[0]
+    #             elif isinstance(predictions, dict):
+    #                 # Support dict-style outputs too, e.g. {'mean': ..., 'logvar': ...}
+    #                 for k in ('mean', 'pred', 'prediction', 'logits', 'output'):
+    #                     if k in predictions:
+    #                         predictions = predictions[k]
+    #                         break
+    #                 else:
+    #                     raise ValueError(
+    #                         f"Model returned dict without a recognized prediction key: {list(predictions.keys())}"
+    #                     )                
+                
+                
+                
+    #             # Optionally extract features for visualization
+    #             if return_features and hasattr(model, 'feature_extractor'):
+    #                 features = model.feature_extractor(genotypes)
+    #                 all_features.append(features.cpu().numpy())
+            
+                
+    #             all_predictions.append(predictions.cpu().numpy())
+    #             all_targets.append(phenotypes.cpu().numpy())
+        
+    #     predictions = np.concatenate(all_predictions)
+    #     targets = np.concatenate(all_targets)
+        
+    #     # Calculate PRS-specific metrics
+    #     metrics = self.calculate_prs_metrics(predictions, targets)
+        
+    #     if return_features and all_features:
+    #         features = np.concatenate(all_features)
+    #         return predictions, targets, metrics, features
+        
+    #     return predictions, targets, metrics
+    
+    def evaluate_single_model(self, model, data_loader, return_features=False):
+        model.eval()
+        all_predictions, all_targets, all_features = [], [], []
+        all_epistemic, all_aleatoric = [], []
+
         with torch.no_grad():
             for genotypes, phenotypes in data_loader:
                 genotypes = genotypes.to(self.device)
                 phenotypes = phenotypes.to(self.device)
-                
-                # Get predictions
-                predictions = model(genotypes)
-                
-                # Optionally extract features for visualization
+
+                predictions, aux = self._model_predict(model, genotypes)
+
                 if return_features and hasattr(model, 'feature_extractor'):
                     features = model.feature_extractor(genotypes)
                     all_features.append(features.cpu().numpy())
-                
+
                 all_predictions.append(predictions.cpu().numpy())
                 all_targets.append(phenotypes.cpu().numpy())
-        
+                if 'epistemic_std' in aux:
+                    all_epistemic.append(aux['epistemic_std'].cpu().numpy())
+                if 'aleatoric_std' in aux:
+                    all_aleatoric.append(aux['aleatoric_std'].cpu().numpy())
+
         predictions = np.concatenate(all_predictions)
         targets = np.concatenate(all_targets)
-        
-        # Calculate PRS-specific metrics
         metrics = self.calculate_prs_metrics(predictions, targets)
-        
+
+        # Attach uncertainty stats if collected
+        if all_epistemic:
+            metrics['mean_epistemic_std'] = float(np.mean(np.concatenate(all_epistemic)))
+        if all_aleatoric:
+            metrics['mean_aleatoric_std'] = float(np.mean(np.concatenate(all_aleatoric)))
+
         if return_features and all_features:
-            features = np.concatenate(all_features)
-            return predictions, targets, metrics, features
-        
+            return predictions, targets, metrics, np.concatenate(all_features)
         return predictions, targets, metrics
+    
     
     def calculate_prs_metrics(
         self,

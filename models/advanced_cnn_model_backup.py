@@ -1,38 +1,25 @@
 """
-AdvancedCNN for PRS prediction (binary / multiclass / regression).
+AdvancedCNN for classification PRS prediction.
 
 The CNN counterpart to AdvancedMLP. Same three improvements over a vanilla
-CNN:
+classification CNN:
 
-1. Wide-and-deep architecture: a Linear(n_channels * input_dim -> output)
+1. Wide-and-deep architecture: a Linear(n_channels * input_dim -> logits)
    skip runs in parallel with the deep CNN. Guarantees the model can recover
-   logistic / linear regression on the raw genotype vector when the deep arm
-   doesn't help. For genomics this is a non-trivial floor -- linear PRS
-   methods (LDpred2, lassosum) are very competitive baselines for both
-   case/control and quantitative phenotypes.
+   logistic regression on the raw genotype vector when the deep arm doesn't
+   help. For genomics this is a non-trivial floor -- linear PRS methods
+   (LDpred2, lassosum) are very competitive baselines.
 
-2. Class-imbalance-aware losses (classification only): `make_loss(y_train=...)`
-   builds BCEWithLogitsLoss(pos_weight) or CrossEntropyLoss(weight) from
-   training class frequencies. Optional focal loss and label smoothing.
+2. Class-imbalance-aware losses: `make_loss(y_train=...)` builds
+   BCEWithLogitsLoss(pos_weight) or CrossEntropyLoss(weight) from training
+   class frequencies. Optional focal loss and label smoothing.
 
-3. Post-hoc temperature scaling (classification only):
-   `fit_temperature(val_logits, val_labels)` fits a single scalar T on a
-   held-out validation fold; predict_proba returns calibrated probabilities
-   afterwards.
-
-For regression (quantitative traits, e.g. height, BMI, lipid levels):
-    - Use task="regression"; output shape is (B, 1) from forward, (B,) from
-      predict.
-    - make_loss() returns MSE / L1 / Huber / SmoothL1.
-    - The wide skip recovers linear regression as a special case, so the
-      model can't underperform a linear PRS baseline due to optimization
-      issues alone.
-    - fit_temperature is a no-op; for predictive uncertainty use the BNN.
-    - Standardize y on the training fold to make LRs / weight decay
-      transferable across phenotypes.
+3. Post-hoc temperature scaling: `fit_temperature(val_logits, val_labels)`
+   fits a single scalar T on a held-out validation fold; predict_proba
+   returns calibrated probabilities afterwards.
 
 Note on parameter cost: with input_dim ~ 500K SNPs the wide arm has ~500K
-parameters per output, which is comparable to or smaller than the conv stack.
+parameters per logit, which is comparable to or smaller than the conv stack.
 For very large input_dim and tight memory budgets, set wide_skip=False.
 """
 
@@ -43,17 +30,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Reuse classification + regression helpers from advanced_mlp to keep them
-# in one place.
-from .advanced_mlp_model import (
-    FocalLoss,
-    _SmoothedBCEWithLogitsLoss,
-    _build_regression_loss,
-    VALID_REGRESSION_LOSSES,
-)
+# Reuse classification helpers from advanced_mlp to keep these in one place.
+from .advanced_mlp_model import FocalLoss, _SmoothedBCEWithLogitsLoss
 
 
-VALID_TASKS = ("binary", "multiclass", "regression")
+VALID_TASKS = ("binary", "multiclass")
 
 
 def _pick_groups(num_channels: int, target: int = 8) -> int:
@@ -66,21 +47,17 @@ def _pick_groups(num_channels: int, target: int = 8) -> int:
 
 class AdvancedCNN(nn.Module):
     """
-    Wide-and-deep 1D CNN.
+    Wide-and-deep 1D CNN classifier.
 
     Architecture:
                    +-- conv stack -> fc stack -> deep_head ---+
-        x  -- ... -+                                          +--> output  (-> /T at predict, classification only)
+        x  -- ... -+                                          +--> logits  (-> /T at predict)
                    +-- wide_head (linear over flattened x) ---+
 
     Notes:
         - No norm immediately precedes deep_head (BN/GN running stats can
-          drift between train/eval and degrade calibration / regression scale).
-        - Forward returns RAW outputs:
-            binary     -> logits, (B, 1)
-            multiclass -> logits, (B, num_classes)
-            regression -> predictions, (B, 1)
-          predict_proba / predict apply task-specific post-processing.
+          drift between train/eval and degrade calibration).
+        - Forward returns RAW logits; predict_proba / predict apply T.
     """
 
     def __init__(
@@ -128,14 +105,7 @@ class AdvancedCNN(nn.Module):
         self.kernel_sizes = list(kernel_sizes)
         self.pool_sizes = list(pool_sizes)
 
-        # Output dimension:
-        #   binary     -> single logit
-        #   multiclass -> one logit per class
-        #   regression -> single continuous output
-        if task == "binary" or task == "regression":
-            self.logit_dim = 1
-        else:  # multiclass
-            self.logit_dim = num_classes
+        self.logit_dim = 1 if task == "binary" else num_classes
 
         # ----- conv stack ---------------------------------------------- #
         conv_layers: List[nn.Module] = []
@@ -187,8 +157,7 @@ class AdvancedCNN(nn.Module):
         )
 
         # Temperature stored as a buffer so it isn't picked up by
-        # model.parameters() and trained accidentally. Classification only;
-        # left at 1.0 for regression.
+        # model.parameters() and trained accidentally.
         self.register_buffer("temperature", torch.ones(1))
         self._temperature_fitted = False
 
@@ -234,10 +203,9 @@ class AdvancedCNN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Returns RAW (uncalibrated) outputs.
-            binary     -> logits, (B, 1)
-            multiclass -> logits, (B, num_classes)
-            regression -> predictions, (B, 1)
+        Returns RAW (uncalibrated) logits.
+            binary     -> (B, 1)
+            multiclass -> (B, num_classes)
 
         Accepts (B, n_snps) for n_channels=1 or (B, n_snps, n_channels) for
         multi-channel input.
@@ -255,11 +223,11 @@ class AdvancedCNN(nn.Module):
         h = self.conv_layers(x_conv)
         h = h.flatten(start_dim=1)
         h = self.fc_layers(h)
-        deep_out = self.deep_head(h)
+        deep_logits = self.deep_head(h)
 
         if self.wide_head is not None:
-            return deep_out + self.wide_head(x_flat)
-        return deep_out
+            return deep_logits + self.wide_head(x_flat)
+        return deep_logits
 
     @torch.no_grad()
     def predict_proba(self, x: torch.Tensor) -> torch.Tensor:
@@ -267,16 +235,7 @@ class AdvancedCNN(nn.Module):
         Calibrated probabilities (T-scaled if fitted; T=1 otherwise).
             binary     -> (B,)
             multiclass -> (B, num_classes)
-
-        Not defined for regression — use predict() to obtain real-valued
-        predictions.
         """
-        if self.task == "regression":
-            raise NotImplementedError(
-                "predict_proba is not defined for task='regression'. "
-                "Use predict() to obtain real-valued predictions."
-            )
-
         logits = self.forward(x)
         scaled = logits / self.temperature
         if self.task == "binary":
@@ -286,18 +245,10 @@ class AdvancedCNN(nn.Module):
     @torch.no_grad()
     def predict(self, x: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
         """
-        Predictions from the model.
+        Class predictions on calibrated probabilities.
             binary     -> (B,) long, 1 iff P(class=1) >= threshold
             multiclass -> (B,) long, argmax of softmax
-            regression -> (B,) float, raw model output (no scaling applied)
-
-        For regression, if the model was trained on a standardized target
-        (recommended), the caller must invert the standardization to recover
-        predictions on the original phenotype scale.
         """
-        if self.task == "regression":
-            return self.forward(x).squeeze(-1)
-
         proba = self.predict_proba(x)
         if self.task == "binary":
             return (proba >= threshold).long()
@@ -309,7 +260,7 @@ class AdvancedCNN(nn.Module):
             x = x.unsqueeze(1)
         elif x.dim() == 3:
             x = x.transpose(1, 2).contiguous()
-
+        
         return self.conv_layers(x)
 
     def get_receptive_field(self) -> int:
@@ -334,8 +285,6 @@ class AdvancedCNN(nn.Module):
         go to zero), not per-SNP feature sparsity like in an MLP. For per-SNP
         sparsity in a CNN you would need a learned input mask or group lasso
         over input positions; this simple L1 is the cheap version.
-
-        Task-agnostic — applies equally for classification and regression.
         """
         device = next(self.parameters()).device
         if self.first_layer_l1 <= 0.0:
@@ -353,40 +302,13 @@ class AdvancedCNN(nn.Module):
         use_class_weights: bool = True,
         focal_gamma: Optional[float] = None,
         label_smoothing: float = 0.0,
-        regression_loss: str = "mse",
-        huber_delta: float = 1.0,
     ) -> nn.Module:
         """
         Build a task-appropriate loss; mirrors AdvancedMLP.make_loss.
 
-        Classification:
-            binary    -> pos_weight = n_neg / n_pos
-            multiclass-> weight[c]  = N / (num_classes * n_c)
-            focal_gamma not None -> FocalLoss instead of BCE/CE.
-            label_smoothing > 0  -> smooth labels (BCE/CE only).
-
-        Regression:
-            regression_loss in {"mse", "l1", "huber", "smooth_l1"}.
-            huber_delta sets HuberLoss.delta or SmoothL1Loss.beta.
-            Classification-only options (y_train, focal_gamma, label_smoothing)
-            are ignored with a warning.
+        binary    -> pos_weight = n_neg / n_pos
+        multiclass-> weight[c]  = N / (num_classes * n_c)
         """
-        if self.task == "regression":
-            ignored = []
-            if y_train is not None and use_class_weights:
-                ignored.append("y_train/use_class_weights")
-            if focal_gamma is not None:
-                ignored.append("focal_gamma")
-            if label_smoothing > 0:
-                ignored.append("label_smoothing")
-            if ignored:
-                warnings.warn(
-                    "Regression task ignores classification-only options: "
-                    f"{', '.join(ignored)}."
-                )
-            return _build_regression_loss(regression_loss, huber_delta=huber_delta)
-
-        # ----- classification path ------------------------------------- #
         alpha = None
         pos_weight = None
         class_weight = None
@@ -426,7 +348,7 @@ class AdvancedCNN(nn.Module):
         )
 
     # ------------------------------------------------------------------ #
-    # Temperature scaling (classification only)                          #
+    # Temperature scaling                                                #
     # ------------------------------------------------------------------ #
 
     def fit_temperature(
@@ -440,21 +362,11 @@ class AdvancedCNN(nn.Module):
         Fit a single scalar T on a held-out validation set by minimizing NLL
         of T-scaled logits (Guo et al., 2017). Updates self.temperature.
 
-        No-op for regression — temperature scaling is a probabilistic-
-        classification calibration technique. For regression predictive
-        uncertainty, use the BNN model or post-hoc residual-based intervals.
-
         For BNN variants of this model, prefer to pass the MC-averaged
         predictive logits (i.e., logit of mean(p)) rather than a single
         deterministic forward pass, otherwise calibration throws away the
         epistemic uncertainty you computed.
         """
-        if self.task == "regression":
-            warnings.warn(
-                "fit_temperature is a no-op for task='regression'."
-            )
-            return 1.0
-
         device = val_logits.device
         T = nn.Parameter(torch.ones(1, device=device))
         optimizer = torch.optim.LBFGS([T], lr=lr, max_iter=max_iter)

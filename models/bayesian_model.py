@@ -175,8 +175,18 @@ class InputCompressor(nn.Module):
     ):
         super().__init__()
         self.n_channels = n_channels
+        
+        self.identity = (n_layers == 0)
+        self.output_dim = input_dim * n_channels if self.identity else compressed_dim
+        
+        
+        if self.identity:
+            self.net = nn.Identity()
+            return
+        
         layers: list[nn.Module] = []
-        dim = input_dim * n_channels
+        dim = input_dim * n_channels 
+                
         for i in range(n_layers):
             out = compressed_dim if i == n_layers - 1 else max(compressed_dim, dim // 4)
             layers.extend([
@@ -255,7 +265,7 @@ class BayesianNeuralNetwork(nn.Module):
             raise ValueError(f"Unknown activation: {activation}")
 
         bayesian_layers: list[nn.Module] = []
-        prev = compressed_dim
+        prev = self.compressor.output_dim
         for h in hidden_dims:
             bayesian_layers.append(
                 BayesianLinear(prev, h, prior_pi, prior_sigma1, prior_sigma2,

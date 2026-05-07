@@ -1,49 +1,40 @@
 """
-AdvancedMLP for PRS prediction (binary / multiclass / regression).
+AdvancedMLP for classification PRS prediction.
 
-Three substantive improvements over a vanilla MLP for genotype -> phenotype
-prediction:
+Three substantive improvements over a vanilla classification MLP for case/control
+or multiclass phenotype prediction:
 
-1. Wide-and-deep architecture: an input -> output linear skip runs in parallel
-   with the deep MLP. This guarantees the model can recover logistic /
-   linear regression when the deep arm doesn't help -- which is the most
-   reliable PRS baseline (LDpred2, lassosum, etc.) and the floor you don't
-   want to fall below.
+1. Wide-and-deep architecture: an input -> logit linear skip runs in parallel
+   with the deep MLP. This guarantees the model can recover logistic regression
+   when the deep arm doesn't help -- which is the most reliable PRS baseline
+   and the floor you don't want to fall below.
 
-2. Class-imbalance-aware losses (classification only): `make_loss(y_train=...)`
-   builds a BCEWithLogitsLoss(pos_weight) or CrossEntropyLoss(weight) with
-   weights derived from training class frequencies. Optional focal loss and
-   label smoothing for further imbalance / calibration handling.
+2. Class-imbalance-aware losses: `make_loss(y_train=...)` builds a
+   BCEWithLogitsLoss(pos_weight) or CrossEntropyLoss(weight) with weights
+   derived from training class frequencies. Optional focal loss and label
+   smoothing for further imbalance / calibration handling.
 
-3. Post-hoc temperature scaling (classification only): `fit_temperature(...)`
+3. Post-hoc temperature scaling: `fit_temperature(val_logits, val_labels)`
    fits a single scalar T on a held-out validation fold; predict_proba then
    returns calibrated probabilities. Almost free to add and consistently
    improves ECE / Brier on tabular classifiers.
 
-For regression (quantitative traits, e.g. height, BMI, lipid levels):
-    - Use task="regression"; output shape is (B, 1) from forward, (B,) from
-      predict.
-    - make_loss() returns MSE / L1 / Huber / SmoothL1.
-    - The wide skip recovers linear regression as a special case, so the
-      model can't underperform a linear PRS baseline due to optimization
-      issues alone.
-    - fit_temperature is a no-op (calibration is a classification concept);
-      for predictive uncertainty in regression, use the BNN model instead.
-    - Standardize y on the training fold (mean 0, unit variance) to make
-      learning rates / weight decay transferable across phenotypes.
-
-Typical usage (binary):
+Typical usage:
     model = AdvancedMLP(input_dim=n_snps, task="binary")
-    criterion = model.make_loss(y_train=y_train)
-    ...
-    model.fit_temperature(val_logits, y_val)
-    probs = model.predict_proba(X_test)
+    criterion = model.make_loss(y_train=y_train)            # uses pos_weight
+    optim = torch.optim.AdamW(model.parameters(),
+                              lr=1e-3, weight_decay=1e-2)
 
-Typical usage (regression):
-    model = AdvancedMLP(input_dim=n_snps, task="regression")
-    criterion = model.make_loss(regression_loss="mse")
-    ...
-    y_hat = model.predict(X_test)        # (B,) float
+    # ... train loop; optionally add model.first_layer_l1_penalty() to loss ...
+
+    # Calibrate after training, on the inner-validation fold:
+    model.eval()
+    with torch.no_grad():
+        val_logits = model(X_val)
+    model.fit_temperature(val_logits, y_val)
+
+    # Calibrated outputs:
+    probs = model.predict_proba(X_test)
 """
 
 from typing import List, Optional
@@ -54,8 +45,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-VALID_TASKS = ("binary", "multiclass", "regression")
-VALID_REGRESSION_LOSSES = ("mse", "l1", "huber", "smooth_l1")
+VALID_TASKS = ("binary", "multiclass")
 
 
 # --------------------------------------------------------------------------- #
@@ -83,10 +73,8 @@ class FocalLoss(nn.Module):
         reduction: str = "mean",
     ):
         super().__init__()
-        if task not in ("binary", "multiclass"):
-            raise ValueError(
-                f"FocalLoss task must be 'binary' or 'multiclass'; got {task}"
-            )
+        if task not in VALID_TASKS:
+            raise ValueError(f"task must be one of {VALID_TASKS}; got {task}")
         self.task = task
         self.gamma = gamma
         self.reduction = reduction
@@ -151,42 +139,6 @@ class _SmoothedBCEWithLogitsLoss(nn.Module):
         )
 
 
-class _RegressionLoss(nn.Module):
-    """
-    Thin wrapper around standard regression losses (MSE / L1 / Huber / SmoothL1)
-    that flattens predictions and targets to (B,) so the loss is unambiguous
-    regardless of whether the user supplies (B,) or (B, 1) tensors.
-
-    Without this wrapper, e.g. nn.MSELoss()(pred (B,1), target (B,)) silently
-    broadcasts to a (B, B) loss tensor — a classic source of training bugs.
-    """
-
-    def __init__(self, base: nn.Module):
-        super().__init__()
-        self.base = base
-
-    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        return self.base(pred.reshape(-1), target.reshape(-1).float())
-
-
-def _build_regression_loss(name: str, huber_delta: float = 1.0) -> nn.Module:
-    """Construct a regression loss by name; wraps it for shape-safety."""
-    name = name.lower()
-    if name == "mse":
-        base: nn.Module = nn.MSELoss()
-    elif name == "l1":
-        base = nn.L1Loss()
-    elif name == "huber":
-        base = nn.HuberLoss(delta=huber_delta)
-    elif name == "smooth_l1":
-        base = nn.SmoothL1Loss(beta=huber_delta)
-    else:
-        raise ValueError(
-            f"regression_loss must be one of {VALID_REGRESSION_LOSSES}; got {name}"
-        )
-    return _RegressionLoss(base)
-
-
 # --------------------------------------------------------------------------- #
 # Main model                                                                  #
 # --------------------------------------------------------------------------- #
@@ -194,25 +146,20 @@ def _build_regression_loss(name: str, huber_delta: float = 1.0) -> nn.Module:
 
 class AdvancedMLP(nn.Module):
     """
-    Wide-and-deep MLP for genotype -> phenotype prediction.
+    Wide-and-deep classification MLP for genotype -> phenotype prediction.
 
     Architecture:
         x --+-- feature_extractor --> deep_head -----+
-            |                                        +--> output  (-> /T at predict, classification only)
+            |                                        +--> logits  (-> /T at predict)
             +-- wide_head (linear) ------------------+
 
     Notes:
         - No norm layer immediately precedes deep_head; BN/LN running stats can
-          drift between train/eval and degrade calibration / regression scale.
-        - With wide_skip=True (default), the model strictly contains
-          logistic / linear regression as a special case, so it can't
-          underperform the linear PRS baseline due to optimization issues
-          alone.
-        - Forward returns RAW outputs:
-            binary     -> logits, shape (B, 1)
-            multiclass -> logits, shape (B, num_classes)
-            regression -> predictions, shape (B, 1)
-          predict_proba / predict apply task-specific post-processing.
+          drift between train/eval and degrade calibration.
+        - With wide_skip=True (default), the model strictly contains logistic
+          regression as a special case, so it can't underperform the linear PRS
+          baseline due to optimization issues alone.
+        - Forward returns RAW logits. predict_proba / predict apply temperature.
     """
 
     def __init__(
@@ -244,21 +191,15 @@ class AdvancedMLP(nn.Module):
         self.first_layer_l1 = float(first_layer_l1)
         self.activation_name = activation
         self.norm_type = norm
-
+        
         if n_channels not in (1, 2, 3):
             raise ValueError(f"n_channels must be 1, 2, or 3; got {n_channels}")
         self.n_channels = n_channels
         effective_dim = input_dim * n_channels
+        
 
-        # Output dimension:
-        #   binary     -> single logit
-        #   multiclass -> one logit per class
-        #   regression -> single continuous output (multi-target regression
-        #                 not supported here; train one model per trait)
-        if task == "binary" or task == "regression":
-            self.logit_dim = 1
-        else:  # multiclass
-            self.logit_dim = num_classes
+        # Single logit for binary; one per class for multiclass.
+        self.logit_dim = 1 if task == "binary" else num_classes
 
         # Match init nonlinearity to chosen activation.
         init_nl = {"relu": "relu", "leaky_relu": "leaky_relu", "elu": "relu"}.get(
@@ -284,14 +225,14 @@ class AdvancedMLP(nn.Module):
         self.feature_extractor = nn.Sequential(*layers)
         self.deep_head = nn.Linear(prev_dim, self.logit_dim)
 
-        # Wide arm: input -> output.
+        # Wide arm: input -> logits.
         self.wide_head = (
             nn.Linear(effective_dim, self.logit_dim) if wide_skip else None
         )
 
-        # Temperature for post-hoc scaling (classification only). Stored as a
-        # buffer so it is NOT picked up by model.parameters() and trained
-        # accidentally during the main optimization loop.
+        # Temperature for post-hoc scaling. Stored as a buffer so it is NOT
+        # picked up by model.parameters() and trained accidentally during
+        # the main optimization loop.
         self.register_buffer("temperature", torch.ones(1))
         self._temperature_fitted = False
 
@@ -337,19 +278,18 @@ class AdvancedMLP(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Returns RAW (uncalibrated) outputs.
-            binary     -> logits, (B, 1)
-            multiclass -> logits, (B, num_classes)
-            regression -> predictions, (B, 1)
+        Returns RAW (uncalibrated) logits.
+            binary     -> (B, 1)
+            multiclass -> (B, num_classes)
         """
         if x.dim() == 3:
             # Reshape (B, input_dim, n_channels) -> (B, input_dim * n_channels)
             x = x.flatten(start_dim=1)
-
-        deep_out = self.deep_head(self.feature_extractor(x))
+        
+        deep_logits = self.deep_head(self.feature_extractor(x))
         if self.wide_head is not None:
-            return deep_out + self.wide_head(x)
-        return deep_out
+            return deep_logits + self.wide_head(x)
+        return deep_logits
 
     @torch.no_grad()
     def predict_proba(self, x: torch.Tensor) -> torch.Tensor:
@@ -357,16 +297,7 @@ class AdvancedMLP(nn.Module):
         Calibrated probabilities (temperature-scaled if fitted; T=1 otherwise).
             binary     -> (B,)
             multiclass -> (B, num_classes)
-
-        Not defined for regression — use predict() to obtain real-valued
-        predictions.
         """
-        if self.task == "regression":
-            raise NotImplementedError(
-                "predict_proba is not defined for task='regression'. "
-                "Use predict() to obtain real-valued predictions."
-            )
-
         logits = self.forward(x)
         scaled = logits / self.temperature
         if self.task == "binary":
@@ -376,18 +307,10 @@ class AdvancedMLP(nn.Module):
     @torch.no_grad()
     def predict(self, x: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
         """
-        Predictions from the model.
+        Class predictions on calibrated probabilities.
             binary     -> (B,) long, 1 iff P(class=1) >= threshold
             multiclass -> (B,) long, argmax of softmax
-            regression -> (B,) float, raw model output (no scaling applied)
-
-        For regression, if the model was trained on a standardized target
-        (recommended), the caller must invert the standardization to recover
-        predictions on the original phenotype scale.
         """
-        if self.task == "regression":
-            return self.forward(x).squeeze(-1)
-
         proba = self.predict_proba(x)
         if self.task == "binary":
             return (proba >= threshold).long()
@@ -404,13 +327,12 @@ class AdvancedMLP(nn.Module):
         Add to the training loss when first_layer_l1 > 0; encourages SNP-level
         sparsity at the input layer (most SNPs are not causal -> sparse first
         layer is biologically reasonable and an effective regularizer in
-        p >> n regimes). Task-agnostic — applies equally for classification
-        and regression.
+        p >> n regimes).
         """
         device = next(self.parameters()).device
         if self.first_layer_l1 <= 0.0:
             return torch.tensor(0.0, device=device)
-
+        
         W = self.feature_extractor[0].weight                       # (hidden, M*k)
         if self.n_channels == 1:
             return self.first_layer_l1 * W.abs().sum()
@@ -428,48 +350,23 @@ class AdvancedMLP(nn.Module):
         use_class_weights: bool = True,
         focal_gamma: Optional[float] = None,
         label_smoothing: float = 0.0,
-        regression_loss: str = "mse",
-        huber_delta: float = 1.0,
     ) -> nn.Module:
         """
-        Build an appropriate loss for this task.
+        Build an appropriate loss for this task, optionally weighted by training
+        class frequencies.
 
-        Classification (binary / multiclass):
-            Optionally weighted by training class frequencies. When y_train is
-            given and use_class_weights is True:
-                binary    -> pos_weight = n_neg / n_pos
-                multiclass-> weight[c] = N / (num_classes * n_c)
+        Class weight derivation (when y_train is given and use_class_weights):
+            binary    -> pos_weight = n_neg / n_pos
+            multiclass-> weight[c] = N / (num_classes * n_c)   (inverse-frequency)
 
-            focal_gamma not None -> FocalLoss instead of BCE/CE.
-            label_smoothing > 0  -> smooth labels (BCE/CE only; ignored with
-                                    focal loss).
-
-        Regression:
-            regression_loss in {"mse", "l1", "huber", "smooth_l1"}.
-            huber_delta sets HuberLoss.delta or SmoothL1Loss.beta.
-            y_train, use_class_weights, focal_gamma, label_smoothing are
-            all ignored (warned).
-
-        The returned loss flattens preds/targets to (B,) for regression so
-        a (B, 1) prediction tensor and (B,) target tensor never silently
-        broadcast.
+        Args:
+            y_train: training labels (binary: float 0/1; multiclass: long).
+            use_class_weights: disable to keep an unweighted loss even when
+                               y_train is provided.
+            focal_gamma: if not None, return a FocalLoss instead of BCE/CE.
+            label_smoothing: nonzero -> smooth labels (BCE/CE only; ignored
+                             with focal loss).
         """
-        if self.task == "regression":
-            ignored = []
-            if y_train is not None and use_class_weights:
-                ignored.append("y_train/use_class_weights")
-            if focal_gamma is not None:
-                ignored.append("focal_gamma")
-            if label_smoothing > 0:
-                ignored.append("label_smoothing")
-            if ignored:
-                warnings.warn(
-                    "Regression task ignores classification-only options: "
-                    f"{', '.join(ignored)}."
-                )
-            return _build_regression_loss(regression_loss, huber_delta=huber_delta)
-
-        # ----- classification path ------------------------------------- #
         alpha = None
         pos_weight = None
         class_weight = None
@@ -511,7 +408,7 @@ class AdvancedMLP(nn.Module):
         )
 
     # ------------------------------------------------------------------ #
-    # Temperature scaling (classification only)                          #
+    # Temperature scaling                                                #
     # ------------------------------------------------------------------ #
 
     def fit_temperature(
@@ -526,10 +423,6 @@ class AdvancedMLP(nn.Module):
         minimizing NLL of T-scaled logits (Guo et al., 2017). Updates
         self.temperature in place.
 
-        No-op for regression — temperature scaling is a probabilistic-
-        classification calibration technique. For regression predictive
-        uncertainty, use the BNN model or post-hoc residual-based intervals.
-
         Args:
             val_logits: raw logits from forward() on validation data.
                         binary -> (N,) or (N, 1); multiclass -> (N, C).
@@ -538,14 +431,8 @@ class AdvancedMLP(nn.Module):
                         multiclass -> (N,) long.
 
         Returns:
-            The fitted temperature (clamped to [0.05, 20]); 1.0 for regression.
+            The fitted temperature (clamped to [0.05, 20]).
         """
-        if self.task == "regression":
-            warnings.warn(
-                "fit_temperature is a no-op for task='regression'."
-            )
-            return 1.0
-
         device = val_logits.device
         T = nn.Parameter(torch.ones(1, device=device))
         optimizer = torch.optim.LBFGS([T], lr=lr, max_iter=max_iter)

@@ -345,52 +345,171 @@ class Trainer:
 
         return loss, nll_val, kl_val, preds
     
+    # def validate(self) -> Tuple[float, Dict[str, float]]:
+    #     self.model.eval()
+    #     if self.is_bayesian:
+    #         self.model.set_sampling(False)
+
+    #     val_loader = self.data_module.val_dataloader(self.fold)
+        
+    #     total_loss = 0.0
+    #     all_predictions = []
+    #     all_targets = []
+        
+    #     with torch.no_grad():
+    #         for genotypes, phenotypes in tqdm(val_loader, desc='Validation'):
+    #             genotypes = genotypes.to(self.device)
+    #             phenotypes = phenotypes.to(self.device)
+
+    #             if self.is_bayesian:
+    #                 # Deterministic forward (mean weights) for stable val loss
+    #                 output = self.model(genotypes)
+    #                 if self.model.task == 'regression':
+    #                     pred_mean, pred_log_var = output
+    #                     loss = self.criterion(pred_mean, phenotypes)
+    #                     preds = pred_mean
+    #                 else:
+    #                     logits = output
+    #                     loss = self.criterion(logits, phenotypes)
+    #                     preds = logits
+    #             else:
+    #                 preds = self.model(genotypes)
+    #                 loss = self.criterion(preds, phenotypes)
+                
+    #             total_loss += loss.item()
+    #             all_predictions.append(preds.cpu())
+    #             all_targets.append(phenotypes.cpu())
+        
+    #     avg_loss = total_loss / len(val_loader)
+    #     all_predictions = torch.cat(all_predictions)
+    #     all_targets = torch.cat(all_targets)
+    #     metrics = self.calculate_metrics(all_predictions, all_targets)
+
+    #     # Bayesian: run MC uncertainty estimation on val set periodically
+    #     if self.is_bayesian and (self.current_epoch + 1) % 5 == 0:
+    #         unc_metrics = self._evaluate_uncertainty(val_loader)
+    #         metrics.update(unc_metrics)
+        
+    #     return avg_loss, metrics
+    
+    
     def validate(self) -> Tuple[float, Dict[str, float]]:
         self.model.eval()
-        if self.is_bayesian:
-            self.model.set_sampling(False)
 
         val_loader = self.data_module.val_dataloader(self.fold)
-        
+
+        if self.is_bayesian:
+            return self._validate_bayesian_mc(val_loader)
+
+        # Non-Bayesian path (unchanged)
         total_loss = 0.0
         all_predictions = []
         all_targets = []
-        
+
         with torch.no_grad():
             for genotypes, phenotypes in tqdm(val_loader, desc='Validation'):
                 genotypes = genotypes.to(self.device)
                 phenotypes = phenotypes.to(self.device)
-
-                if self.is_bayesian:
-                    # Deterministic forward (mean weights) for stable val loss
-                    output = self.model(genotypes)
-                    if self.model.task == 'regression':
-                        pred_mean, pred_log_var = output
-                        loss = self.criterion(pred_mean, phenotypes)
-                        preds = pred_mean
-                    else:
-                        logits = output
-                        loss = self.criterion(logits, phenotypes)
-                        preds = logits
-                else:
-                    preds = self.model(genotypes)
-                    loss = self.criterion(preds, phenotypes)
-                
+                preds = self.model(genotypes)
+                loss = self.criterion(preds, phenotypes)
                 total_loss += loss.item()
                 all_predictions.append(preds.cpu())
                 all_targets.append(phenotypes.cpu())
-        
+
         avg_loss = total_loss / len(val_loader)
         all_predictions = torch.cat(all_predictions)
         all_targets = torch.cat(all_targets)
         metrics = self.calculate_metrics(all_predictions, all_targets)
-
-        # Bayesian: run MC uncertainty estimation on val set periodically
-        if self.is_bayesian and (self.current_epoch + 1) % 5 == 0:
-            unc_metrics = self._evaluate_uncertainty(val_loader)
-            metrics.update(unc_metrics)
-        
         return avg_loss, metrics
+    
+    def _validate_bayesian_mc(
+                            self, val_loader: torch.utils.data.DataLoader
+                            ) -> Tuple[float, Dict[str, float]]:
+        """
+        Bayesian validation:
+        - val LOSS computed with deterministic forward (low variance, easy to monitor)
+        - val METRICS (AUC, accuracy, etc.) computed on MC-averaged predictions
+        """
+        total_loss = 0.0
+        det_predictions = []          # for stable val loss
+        mc_mean_probs = []            # for AUC + accuracy
+        mc_epistemic = []
+        mc_aleatoric = []
+        all_targets = []
+
+        # --- Deterministic pass for val loss ---
+        self.model.set_sampling(False)
+        with torch.no_grad():
+            for genotypes, phenotypes in tqdm(val_loader, desc='Validation (det)'):
+                genotypes = genotypes.to(self.device)
+                phenotypes = phenotypes.to(self.device)
+
+                output = self.model(genotypes)
+                if self.model.task == 'regression':
+                    pred_mean, _ = output
+                    loss = self.criterion(pred_mean, phenotypes)
+                    preds = pred_mean
+                else:
+                    logits = output
+                    loss = self.criterion(logits, phenotypes)
+                    preds = logits
+
+                total_loss += loss.item()
+                det_predictions.append(preds.cpu())
+                all_targets.append(phenotypes.cpu())
+
+        avg_loss = total_loss / len(val_loader)
+
+        # --- MC-averaged pass for metrics ---
+        self.model.set_sampling(True)
+        with torch.no_grad():
+            for genotypes, _phenotypes in tqdm(val_loader, desc='Validation (MC)'):
+                genotypes = genotypes.to(self.device)
+                mean_pred, ep_std, al_std = self.model.predict_with_uncertainty(
+                    genotypes, n_samples=self.n_val_samples
+                )
+                mc_mean_probs.append(mean_pred.cpu())
+                mc_epistemic.append(ep_std.cpu())
+                mc_aleatoric.append(al_std.cpu())
+
+        self.model.set_sampling(False)
+
+        mc_mean_probs = torch.cat(mc_mean_probs)
+        all_targets = torch.cat(all_targets)
+
+        # Compute primary metrics from MC-averaged predictions.
+        # NOTE: predict_with_uncertainty returns sigmoid(logits) for binary
+        # and pred_mean for regression. calculate_metrics expects logits for
+        # binary (it applies sigmoid internally), so for binary we convert back.
+        if self.model.task == 'binary':
+            # Avoid log(0) — clamp before logit
+            probs = mc_mean_probs.clamp(1e-7, 1 - 1e-7)
+            logits_equivalent = torch.log(probs / (1 - probs))
+            metrics = self.calculate_metrics(logits_equivalent, all_targets)
+        else:
+            metrics = self.calculate_metrics(mc_mean_probs, all_targets)
+
+        # Add uncertainty diagnostics
+        ep = torch.cat(mc_epistemic)
+        al = torch.cat(mc_aleatoric)
+        metrics['epistemic_std_mean'] = ep.mean().item()
+        metrics['aleatoric_std_mean'] = al.mean().item()
+
+        # Uncertainty-error correlation
+        if self.model.task == 'binary':
+            errors = (mc_mean_probs - all_targets.float()).abs()
+        else:
+            errors = (mc_mean_probs - all_targets).abs()
+        errors_np = errors.numpy().flatten()
+        ep_np = ep.numpy().flatten()
+        if len(errors_np) > 2:
+            from scipy.stats import spearmanr
+            corr, _ = spearmanr(ep_np, errors_np)
+            metrics['uncertainty_error_spearman'] = float(corr)
+
+        return avg_loss, metrics
+        
+    
 
     def _evaluate_uncertainty(
         self, val_loader: torch.utils.data.DataLoader
@@ -786,6 +905,8 @@ def main():
         logger.info(f"Auto-detected task type: {model_config['task_type']}")
     else:
         logger.info(f"Using specified task type: {model_config['task_type']}")
+    
+    data_module.scale_target = (model_config['task_type'] == 'regression')
     
     model = create_model(model_config)
         
