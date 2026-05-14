@@ -2,7 +2,7 @@
 
 # Model configuration for PRS prediction
 model:
-  model_type: "bayesian"  # Options: mlp, cnn, transformer, attention, bayesian/bnn, point_transformer, lstm, mlp_regression, cnn_regression, lstm_regression, advanced_mlp, advanced_cnn, advanced_lstm
+  model_type: "advanced_mlp"  # Options: mlp, cnn, transformer, attention, bayesian/bnn, point_transformer, lstm, mlp_regression, cnn_regression, lstm_regression, advanced_mlp, advanced_cnn, advanced_lstm
   
   # Parameters used across multiple model types 
   dropout_rate: 0.3 # Used in all models
@@ -11,7 +11,7 @@ model:
 
 
   # MLP specific parameters (recommended for PRS)
-  hidden_dims: [64, 16]  # Deeper network for complex genetic patterns
+  hidden_dims: [32]  # Deeper network for complex genetic patterns
   batch_norm: True
 
   # Advanced MLP specific parameters
@@ -19,13 +19,13 @@ model:
 
 
   # CNN specific parameters (if model_type: cnn)
-  channels: [32, 64]
+  channels: [16, 32]  # More channels for deeper feature extraction
   kernel_sizes: [7, 5]
   pool_sizes: [3, 3]
-  fc_dims: [128, 32]
+  fc_dims: [32]
 
   # Advanced CNN specific parameters
-  pool_type: 'max'  # max or avg
+  pool_type: 'avg'  # max or avg
   
   # LSTM specific parameters (if model_type: lstm)
   hidden_dim: 250
@@ -45,16 +45,16 @@ model:
   n_attention_heads: 2
   
   # Bayesian Neural Network parameters (if model_type: bayesian/bnn)
-  hidden_dims: [64, 16]
+  hidden_dims: [32]
   compressed_dim: 500         # Deterministic compression before Bayesian layers
-  compressor_layers: 1
+  compressor_layers: 0
   compressor_dropout: 0.1
-  prior_pi: 0.25               # Mixture weight for slab component
+  prior_pi: 0.25             # Mixture weight for slab component
   prior_sigma1: 1.0            # Slab std (broad)
   prior_sigma2: 0.01          # Spike std (narrow, encourages sparsity)
-  init_log_var: -10.0           # Initial posterior log-variance
-  n_samples: 10                # MC forward passes for uncertainty estimation
-  kl_weight: 1.0             # KL multiplier (useful for warm-up schedules)
+  init_log_var: -14.0           # Initial posterior log-variance
+  n_samples: 30                # MC forward passes for uncertainty estimation
+  kl_weight: 0.01             # KL multiplier (useful for warm-up schedules)
   task: "binary"                 # 'binary' for disease phenotypes, 'regression' for quantitative traits
 
   # Bayesian-specific training parameters
@@ -66,7 +66,7 @@ model:
 optimizer:
   type: "adamw"  # Options: adam, adamw, sgd
   lr: 0.0003
-  weight_decay: 0.0
+  weight_decay: 0.9
   # SGD specific
   momentum: 0.9
 
@@ -92,7 +92,7 @@ label_smoothing: 0.05  # Only used if loss_function is crossentropy with label s
 
 # Early stopping
 early_stopping:
-  patience: 5
+  patience: 15
   min_delta: 0.0001
 
 # Data augmentation

@@ -51,7 +51,7 @@ prs_csx:
 
 # SBAYESR Parameters
 sbayesr:
-  ld_folder: ukbEUR_Imputed # ukbEUR_HM3
+  ld_folder: ukbEUR_HM3
   annotation: annot_baseline2.2.txt
 
 # PRSet Parameters

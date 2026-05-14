@@ -2,7 +2,7 @@
 
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
 # input_plink_sklearn: /data/qc/UKB_BRC.QC  # PLINK file prefix
-input_plink_sklearn: /data/raw/UKB_BRC/UKB_BRC_filtered_13 # PLINK file prefix
+input_plink_sklearn: /data/raw/UKB_BRC/UKB_BRC_filtered_3 # PLINK file prefix
 input_phenotype_file: /data/raw/UKB_BRC/UKB_BRC.pheno  # Phenotype CSV file
 
 # Data preprocessing
@@ -61,6 +61,7 @@ models:
     name: 'Ridge'
     optimize: true
     n_trials: 50
+    
   
   lasso:
     enabled: false
@@ -71,21 +72,28 @@ models:
   elasticnet:
     enabled: true
     name: 'Elastic Net'
-    optimize: true
+    optimize: false
     n_trials: 50
+    default_params:
+      l1_ratio: 0.5494
+      C: 0.0214
+      max_iter: 3373
+      fit_intercept: True
+
   
   rf:
     enabled: true
     name: 'Random Forest'
-    optimize: true
+    optimize: false
     n_trials: 50
     default_params:
-      n_estimators: 500
-      max_depth: 50
-      min_samples_split: 10
-      class_weight: 'balanced'  # For classification
+      n_estimators: 1000
+      max_depth: 10
+      min_samples_split: 6
+      min_samples_leaf: 2
       bootstrap: True
-      max_features: 'log2'
+      max_features: 0.8
+      criterion: 'entropy'
   
   gbm:
     enabled: false
@@ -98,22 +106,31 @@ models:
       max_depth: 5
   
   xgboost:
-    enabled: true
+    enabled: false
     name: 'XGBoost'
-    optimize: true
+    optimize: false
     n_trials: 50
     default_params:
-      n_estimators: 5000
-      learning_rate: 0.01
-      max_depth: 4
+      n_estimators: 1000
+      learning_rate: 0.01879
+      max_depth: 6
+      min_child_weight: 6
+      subsample: 0.937
+      colsample_bytree: 0.556
+      gamma: 0.0022
+      reg_alpha: 0.001
+      reg_lambda: 0.0115
+      booster: 'gblinear'
   
   svm:
-    enabled: true
+    enabled: false
     name: 'Support Vector Machine'
-    optimize: true
+    optimize: false
     n_trials: 50
     default_params:
-      kernel: 'rbf'  # linear, rbf, poly
+      kernel: 'linear'  # linear, rbf, poly
+      C: 0.0057
+      shrinking: True
 
   linear_svm:
     enabled: false
@@ -134,7 +151,7 @@ ensemble:
 
 # Training settings
 training:
-  n_jobs: -1  # Use all cores
+  n_jobs: 4  # Use 4 cores
   random_state: 42
   verbose: 1
   early_stopping: false
@@ -142,11 +159,11 @@ training:
 
 # Hyperparameter optimization
 hyperopt:
-  enabled: true
+  enabled: false
   framework: 'optuna'
   n_trials_default: 50
   timeout: 3600  # Max time in seconds per model
-  n_jobs: -1
+  n_jobs: 4
   pruning: true
   sampler: 'tpe'
 

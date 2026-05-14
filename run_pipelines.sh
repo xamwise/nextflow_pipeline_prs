@@ -35,7 +35,7 @@ nextflow run workflows/sklearn_pipeline.nf -params-file workflows/config/sklearn
 SKLEARN_PID=$!
 
 echo "Starting deep learning PRS pipeline..."
-nextflow run workflows/dl_prs.nf --params-file workflows/config/dl_config.yaml &
+nextflow run workflows/dl_prs.nf -params-file workflows/config/dl_config.yaml &
 DL_PID=$!
 
 echo ""

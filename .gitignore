@@ -16,3 +16,5 @@ db.sqlite3
 plots/
 *.ipynb
 stats/
+workflows/config/extra
+workflows/extra
