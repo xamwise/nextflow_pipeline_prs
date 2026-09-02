@@ -2,10 +2,12 @@
 
 # Base paths
 base_dir_parse: "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs"
-input_plink_parse: "/data/raw/UKB_BRC/UKB_BRC_filtered_3"  # PLINK file prefix
-phenotype_file_parse: "/data/raw/UKB_BRC/UKB_BRC.pheno"  # Optional, if not in PLINK
+input_plink_parse: "/data/raw/UKB_ALZ/UKB_ALZ_filtered_13"  # PLINK file prefix
+phenotype_file_parse: "/data/raw/UKB_ALZ/UKB_ALZ.pheno"  # Optional, if not in PLINK
 
-model_type: "standard"  # Options: bayesian, standard
+sum_stats_parse: "data/supplement_data/sum_stats/breast_cancer_sumstats.txt" # for PRS-net
+
+model_type: "standard"  # Options: bayesian, standard, prsnet
 n_gpus: 1  # For multi-GPU training
 
 # Data reuse configuration
@@ -40,3 +42,36 @@ wandb_entity: "max-schuran"
 # Optional features
 create_visualizations: false
 
+prsnet:
+  # --- required -----------------------------------------------------------
+  gene_bed_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/prsnet/gene_bed_files_10kb
+  ggi_graph:    /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/prsnet/ggi_graph.bin
+ 
+  # --- executables --------------------------------------------------------
+  plink_bin:  plink
+  plink2_bin: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/bin/plink2
+ 
+  # --- base GWAS preparation ---------------------------------------------
+  effect_allele: A1        # "A2" if OR is expressed with respect to A2
+  strip_chr_prefix: false  # true if the sumstats CHR column reads "chr1"
+ 
+  # --- QC thresholds ------------------------------------------------------
+  min_maf:  0.01          # base GWAS, column 11
+  min_info: 0.02            # base GWAS, column 10
+  target_maf:  0.01
+  target_hwe:  1.0e-6
+  target_geno: 0.01
+  target_mind: 0.02
+ 
+  # --- scoring ------------------------------------------------------------
+  genes_per_chunk: 250
+  clump_r2: 0.5
+  clump_kb: 250
+  plink_memory: 16000
+ 
+  # --- fold-safe allele frequencies --------------------------------------
+  # Leave false unless train_keep points at a real file. When true, plink2
+  # --read-freq uses training-sample frequencies for missing-genotype
+  # imputation inside --score, instead of frequencies computed over everyone.
+  train_only_freq: false
+  train_keep: null

@@ -55,7 +55,7 @@ model:
   init_log_var: -14.0           # Initial posterior log-variance
   n_samples: 30                # MC forward passes for uncertainty estimation
   kl_weight: 0.01             # KL multiplier (useful for warm-up schedules)
-  task: "binary"                 # 'binary' for disease phenotypes, 'regression' for quantitative traits
+  task: "regression"                 # 'binary' for disease phenotypes, 'regression' for quantitative traits
 
   # Bayesian-specific training parameters
   kl_warmup_epochs: 5        # Linear ramp from 0 → kl_weight

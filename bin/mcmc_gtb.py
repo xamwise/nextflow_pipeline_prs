@@ -9,6 +9,7 @@ Markov Chain Monte Carlo (MCMC) sampler for polygenic prediction with continuous
 import numpy as np
 from scipy import linalg 
 from numpy import random
+# from torch.cuda import err
 import gigrnd
 
 
@@ -65,16 +66,27 @@ def mcmc(a, b, phi, sst_dict, n, ld_blk, blk_size, n_iter, n_burnin, thin, chrom
 
         err = max(n/2.0*(1.0-2.0*sum(beta*beta_mrg)+quad), n/2.0*sum(beta**2/psi))
         sigma = 1.0/random.gamma((n+p)/2.0, 1.0/err)
+        
+        # err = max(np.asarray(n/2.0*(1.0-2.0*sum(beta*beta_mrg)+quad)).item(),
+        #   np.asarray(n/2.0*sum(beta**2/psi)).item())
+        # sigma = 1.0/random.gamma((n+p)/2.0, 1.0/err)
 
         delta = random.gamma(a+b, 1.0/(psi+phi))
 
         for jj in range(p):
             psi[jj] = gigrnd.gigrnd(a-0.5, 2.0*delta[jj], n*beta[jj]**2/sigma)
+        # for jj in range(p):
+        #     psi[jj] = gigrnd.gigrnd(a-0.5, 2.0*delta[jj].item(), (n*beta[jj]**2/sigma).item())
+
+            
         psi[psi>1] = 1.0
 
         if phi_updt == True:
             w = random.gamma(1.0, 1.0/(phi+1.0))
             phi = random.gamma(p*b+0.5, 1.0/(sum(delta)+w))
+        # if phi_updt == True:
+        #     w = random.gamma(1.0, 1.0/(phi+1.0))
+        #     phi = np.asarray(random.gamma(p*b+0.5, 1.0/(sum(delta)+w))).item()
 
         # posterior
         if (itr>n_burnin) and (itr % thin == 0):
@@ -104,9 +116,14 @@ def mcmc(a, b, phi, sst_dict, n, ld_blk, blk_size, n_iter, n_burnin, thin, chrom
     with open(eff_file, 'w') as ff:
         if write_pst == 'TRUE':
             for snp, bp, a1, a2, beta in zip(sst_dict['SNP'], sst_dict['BP'], sst_dict['A1'], sst_dict['A2'], beta_pst):
+                
+            # for snp, bp, a1, a2, beta in zip(sst_dict['SNP'], sst_dict['BP'],
+            #                      sst_dict['A1'], sst_dict['A2'], beta_est[:,0]):    
                 ff.write(('%d\t%s\t%d\t%s\t%s' + '\t%.6e'*n_pst + '\n') % (chrom, snp, bp, a1, a2, *beta))
         else:
             for snp, bp, a1, a2, beta in zip(sst_dict['SNP'], sst_dict['BP'], sst_dict['A1'], sst_dict['A2'], beta_est):
+            # for snp, bp, a1, a2, beta in zip(sst_dict['SNP'], sst_dict['BP'],
+            #                      sst_dict['A1'], sst_dict['A2'], beta_est[:,0]):
                 ff.write('%d\t%s\t%d\t%s\t%s\t%.6e\n' % (chrom, snp, bp, a1, a2, beta))
 
     # write posterior estimates of psi

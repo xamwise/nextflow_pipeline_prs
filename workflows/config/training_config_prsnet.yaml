@@ -1,0 +1,174 @@
+# Training configuration for PRS-Net
+#
+# Derived from training_config.yaml. Differences from that file are marked [CHANGED]
+# or [NEW] with the reason. PRS-Net is binary-only by construction
+# (BCEWithLogitsLoss / AUROC / d_output=1), so there is no regression variant.
+
+model:
+  model_type: "prsnet"                # [CHANGED]
+  task_type: "classification"         # [NEW] set explicitly; the base config has no
+                                      #       task_type key (only the Bayesian-specific
+                                      #       `task:`), so train_model.py falls back to
+                                      #       auto-detection from a sample batch.
+
+  # [NEW] Nested sub-block. The `model:` mapping is flat and shared across every
+  # architecture, and PRS-Net's parameter names collide with existing entries --
+  # most importantly `n_layers`, which is 2 in the base config (LSTM/Transformer)
+  # but must be 1 for PRS-Net's GIN stack. Nesting sidesteps every collision.
+  # Requires the revised create_model branch (see PRSNET_INTEGRATION.md, Patch 1).
+  prsnet:
+    ggi_graph: "ggi_graph.npz"
+    d_hidden: 64
+    gnn_layers: 1                     # upstream PRSNet default n_layers=1
+    n_gene_encode_layer: 1
+    n_predictor_layer: 2
+    mlp_hidden_ratio: 1
+    dropout: 0.2                      # upstream uses 0 in the predictor
+    freeze_gene_embeddings: true
+    pre_norm: true                    # [NEW] no input normalisation happens anywhere
+                                      #       in the data path (preprocessing.standardize
+                                      #       is false and GenotypeDataModule never passes
+                                      #       normalize). This is the only thing standing
+                                      #       between raw SCORE1_AVG scale variation and
+                                      #       the gene encoder.
+    bn_bug_compat: false              # [NEW] false = corrected BatchNorm; true = reproduce
+                                      #       upstream's no-op BN. pre_norm only helps if
+                                      #       this is false. Report which you used.
+    multiple_ancestries: false        # needs the __getitem__ index patch first
+    preserve_multiplicity: true
+    sampler_num_samples: 51200        # [NEW] number of samples to draw from the training dataset
+
+optimizer:
+  type: "adamw"
+  lr: 0.0001                          # [CHANGED] 3e-4 -> 1e-4, upstream PRS-Net value
+  weight_decay: 0.01                   # [CHANGED] 0.9 -> 0.0. See note below; 0.9 is
+                                      #           ~1000x a typical AdamW value and upstream
+                                      #           PRS-Net uses exactly 0.
+  momentum: 0.9                       # unused for adamw
+
+
+scheduler:
+  type: "reduce_on_plateau"
+  patience: 8
+  factor: 0.5
+  step_size: 10
+  gamma: 0.1
+
+
+# Training parameters
+# ---------------------------------------------------------------------------
+# Step-budget note. Upstream trains for len(train_loader) = 10,000,000 / 512
+# = 19,531 steps of class-balanced sampling with replacement. With
+# balanced_sampling below and num_samples = len(train_indices), one epoch is
+# len(train_indices) / batch_size steps -- e.g. 40,000 / 512 = 78 steps, so
+# matching upstream's budget would take ~250 epochs, not 60. Either raise
+# max_epochs or state the shorter budget in the write-up.
+max_epochs: 30                       # [CHANGED] 60 -> 100
+batch_size: 512                       # [CHANGED] 16 -> 512, upstream value. At 0.83 MB
+                                      #           per sample this is ~425 MB per batch of
+                                      #           features; fine on an H100, but check
+                                      #           against your Spartan memory request.
+num_workers: 5                        # dead: GenotypeDataModule hardcodes num_workers=0
+# gradient_clip: 0.0
+cache_size: 512                        # [NEW] requires Patch B. Default 1000 x 0.83 MB
+                                      #        = 0.81 GB resident per dataset instance,
+                                      #        rebuilt every epoch.
+balanced_sampling: true               # [NEW] requires Patch C
+
+
+loss_function: "auto"                 # resolves to BCE for a binary target
+label_smoothing: 0.05
+
+
+early_stopping:
+  patience: 25
+  min_delta: 0.0
+  monitor: val_auc_roc
+
+
+# Data augmentation
+# ---------------------------------------------------------------------------
+# [CHANGED] true -> false. In the base config the two dangerous operations are
+# already commented out (noise_std, shuffle_regions), so only snp_dropout: 0.2 is
+# live -- which for PRS-Net means zeroing 20% of *genes*, not SNPs. That is
+# coherent as gene dropout but is not upstream behaviour, so it is a confound
+# against published numbers. Turn it off for the comparison run; consider
+# re-enabling as a deliberate ablation afterwards.
+augment_train: false
+augmentation_params: {}
+
+
+use_wandb: true
+wandb_project: "prs-prediction-prsnet"
+wandb_entity: null
+log_interval: 10
+save_checkpoint_interval: 5
+
+
+# Hardware
+use_cuda: false                       # dead: Trainer picks the device from
+                                      # torch.cuda.is_available() alone (train_model.py:91)
+cuda_deterministic: false
+seed: 42
+n_gpus: 1                             # keep at 1: TRAIN_KFOLD_MULTI_GPU wraps the model in
+                                      # DDP, and PRSNet holds the adjacency as a registered
+                                      # buffer. Verify buffer broadcast before scaling up.
+
+
+preprocessing:
+  impute_missing: false
+  standardize: false                  # left false deliberately -- normalisation is done
+                                      # model-side via pre_norm, which is fold-safe
+  remove_low_maf: false
+  maf_threshold: 0.01
+
+
+cv:
+  n_folds: 5
+  stratified: True
+
+
+# [CHANGED] The base config lists only regression metrics (mse/mae/r2/correlation/
+# explained_variance) with no AUROC. PRS-Net is binary-only, and AUROC is the metric
+# upstream reports.
+metrics:
+  - auroc
+  - auprc
+  - accuracy
+  - nagelkerke_r2
+
+
+# Hyperparameter search
+# ---------------------------------------------------------------------------
+# Not usable for PRS-Net yet: hyperparameter_optimizer.py has no `prsnet` branch in
+# _suggest_hyperparameters, and omits n_channels when building the model config
+# (lines 75-76), same as evaluate_models.py. Also note that in the base config
+# `hyperparameter_search.model_type.choices` is commented out, so
+# _suggest_hyperparameters falls back to base_config['model']['model_type'] -- a
+# *string*, not a list. trial.suggest_categorical would then treat it as a sequence
+# of characters. That bug is independent of PRS-Net.
+hyperparameter_search:
+  model_type:
+    type: categorical
+    choices: ["prsnet"]
+
+  learning_rate:
+    type: float
+    low: 1e-5
+    high: 1e-3
+    log: true
+
+  d_hidden:
+    type: categorical
+    choices: [32, 64, 128]
+
+  gnn_layers:
+    type: int
+    low: 1
+    high: 3
+
+  weight_decay:
+    type: float
+    low: 1e-6
+    high: 1e-2
+    log: true

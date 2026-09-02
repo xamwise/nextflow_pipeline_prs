@@ -1,19 +1,31 @@
 #!/usr/bin/env Rscript
-library(bigstatsr)
-library(bigsnpr)
-library(data.table)
-library(dplyr)
-library(ggplot2)
-library(optparse)
-library(xgboost)
+suppressPackageStartupMessages({
+  library(bigstatsr)
+  library(bigsnpr)
+  library(data.table)
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(optparse)
+  library(xgboost)
+})
+
+# -----------------------------------------------------------------------------
+# Constants
+# -----------------------------------------------------------------------------
+# Any p-value <= 0 (float underflow in the sumstats file, e.g. 1e-320 parsed as
+# 0) becomes Inf under -log10(). snp_grid_PRS() then evaluates its default
+#   grid.lpS.thr = seq_log(0.1, 0.999 * max(lpS[unlist(all_keep)]), n_thr_lpS)
+# and dies with "'to' must be a finite number". Floor p instead.
+P_FLOOR <- 1e-300   # -log10 -> 300
 
 
 option_list = list(
-  make_option(c("-b", "--bed"), type="character", default=NULL, 
+  make_option(c("-b", "--bed"), type="character", default=NULL,
               help="bedfile name without extension", metavar="character"),
-  make_option(c("-f", "--sum_stats"), type="character", default=NULL, 
+  make_option(c("-f", "--sum_stats"), type="character", default=NULL,
               help="summary statistics file name", metavar="character"),
-  make_option(c("-p", "--pheno"), type="character", default=NULL, 
+  make_option(c("-p", "--pheno"), type="character", default=NULL,
               help="phenotype file name (optional, uses fam file if not provided)", metavar="character"),
   make_option(c("--trait_type"), type="character", default="auto",
               help="trait type: 'binary', 'quantitative', or 'auto' [default: auto]", metavar="character"),
@@ -28,8 +40,9 @@ option_list = list(
   make_option(c("-o", "--out"), type="character", default=NULL,
               help="output prefix", metavar="character"),
   make_option(c("--out_dir"), type="character", default=".",
-              help="output directory [default: current directory]", metavar="character")
-  
+              help="output directory [default: current directory]", metavar="character"),
+  make_option(c("--flip_effect_allele"), action="store_true", default=FALSE,
+              help="only used when sumstats use allele1/allele2 naming: treat allele2 (not allele1) as the effect allele")
 )
 
 opt_parser = OptionParser(option_list=option_list)
@@ -39,6 +52,13 @@ if (is.null(opt$bed) || is.null(opt$sum_stats) || is.null(opt$out)){
   print_help(opt_parser)
   stop("Required arguments: --bed, --sum_stats, and --out", call.=FALSE)
 }
+
+# Resolve output prefix / make sure the directory exists
+if (!is.null(opt$out_dir) && nzchar(opt$out_dir) && opt$out_dir != "." &&
+    !grepl("^(/|~)", opt$out) && !grepl("/", opt$out)) {
+  opt$out <- file.path(opt$out_dir, opt$out)
+}
+dir.create(dirname(opt$out), recursive = TRUE, showWarnings = FALSE)
 
 # Set number of cores
 if (is.null(opt$ncores)) {
@@ -70,12 +90,18 @@ if (!is.null(opt$pheno)) {
 
   y <- pheno_data$phenotype
   obj.bigSNP$fam$affection <- y
-  
+
 } else {
   # Use affection status from fam file
   cat("Using affection status from fam file\n")
   y <- obj.bigSNP$fam$affection
   pheno_col <- "affection"
+}
+
+if (length(y) != nrow(G)) {
+  stop("Phenotype vector has length ", length(y),
+       " but the genotype matrix has ", nrow(G), " rows. ",
+       "The phenotype file must be in the same order as the .fam file.")
 }
 
 # Remove missing phenotypes
@@ -116,7 +142,7 @@ if (opt$trait_type == "auto") {
 } else {
   trait_type <- opt$trait_type
   cat("Using specified trait type:", trait_type, "\n")
-  
+
   if (trait_type == "binary") {
     if (!all(unique_vals %in% c(0, 1))) {
       if (all(unique_vals %in% c(1, 2))) {
@@ -142,39 +168,97 @@ if (trait_type == "quantitative") {
   cat("Phenotype range:", min(y, na.rm = TRUE), "to", max(y, na.rm = TRUE), "\n")
 }
 
+# -----------------------------------------------------------------------------
 # Read summary statistics
+# -----------------------------------------------------------------------------
 cat("Reading summary statistics...\n")
 sumstats <- bigreadr::fread2(opt$sum_stats)
 
-# Standardize column names
-col_names <- tolower(names(sumstats))
-names(sumstats) <- col_names
+# Standardise column names.
+# NOTE: the previous version tested every rule against a *snapshot* of the
+# original names (`col_names`), so rules could never see the effect of earlier
+# renames and some rules could never fire at all. Each rule below re-reads the
+# current names and is a no-op if the target column already exists.
+names(sumstats) <- tolower(trimws(names(sumstats)))
 
-# Try to identify and rename columns
-if ("chromosome" %in% col_names) names(sumstats)[which(col_names == "chromosome")] <- "chr"
-if ("rsid" %in% col_names) names(sumstats)[which(col_names == "rsid")] <- "marker.id"
-if ("marker.id" %in% col_names) names(sumstats)[which(col_names == "marker.id")] <- "rsid"
-if ("bp" %in% col_names) names(sumstats)[which(col_names == "bp")] <- "pos"
-if ("position" %in% col_names) names(sumstats)[which(col_names == "position")] <- "pos"
-if ("physical.pos" %in% col_names) names(sumstats)[which(col_names == "physical.pos")] <- "pos"
-if ("allele1" %in% col_names) names(sumstats)[which(col_names == "allele1")] <- "a0"
-if ("allele2" %in% col_names) names(sumstats)[which(col_names == "allele2")] <- "a1"
-if ("a2" %in% col_names) names(sumstats)[which(col_names == "a2")] <- "a0"
-if ("effect" %in% col_names) names(sumstats)[which(col_names == "effect")] <- "beta"
-if ("or" %in% col_names && !"beta" %in% col_names) {
-  sumstats$beta <- log(sumstats$or)
+rename_to <- function(df, target, candidates) {
+  nm <- names(df)
+  if (target %in% nm) return(df)             # already named correctly
+  hit <- which(nm %in% candidates)
+  if (length(hit) >= 1L) names(df)[hit[1L]] <- target
+  df
 }
-if ("pvalue" %in% col_names) names(sumstats)[which(col_names == "pvalue")] <- "p"
-if ("p.value" %in% col_names) names(sumstats)[which(col_names == "p.value")] <- "p"
+
+sumstats <- rename_to(sumstats, "chr",
+                      c("chromosome", "chrom", "#chrom", "chr_name", "hg19chr"))
+sumstats <- rename_to(sumstats, "pos",
+                      c("bp", "position", "physical.pos", "base_pair_location",
+                        "pos_b37", "bp_hg19", "bp_hg38"))
+sumstats <- rename_to(sumstats, "rsid",
+                      c("snp", "marker.id", "markername", "variant_id", "id"))
+sumstats <- rename_to(sumstats, "p",
+                      c("pval", "pvalue", "p.value", "p_value", "p-value",
+                        "p_bolt_lmm", "p_bolt_lmm_inf", "frequentist_add_pvalue"))
+sumstats <- rename_to(sumstats, "beta",
+                      c("effect", "b", "effect_size", "log_odds", "beta_hat"))
+sumstats <- rename_to(sumstats, "or", c("odds_ratio", "oddsratio"))
+
+# Alleles. bigsnpr convention: a1 is the EFFECT allele (beta refers to a1),
+# a0 is the other allele -- matching allele1/allele2 of the bigSNP map below.
+sumstats <- rename_to(sumstats, "a1", c("effect_allele", "ea", "alt", "tested_allele"))
+sumstats <- rename_to(sumstats, "a0", c("a2", "other_allele", "non_effect_allele",
+                                        "nea", "ref", "reference_allele"))
+
+if (!all(c("a0", "a1") %in% names(sumstats)) &&
+    all(c("allele1", "allele2") %in% names(sumstats))) {
+  eff <- if (isTRUE(opt$flip_effect_allele)) "allele2" else "allele1"
+  oth <- if (isTRUE(opt$flip_effect_allele)) "allele1" else "allele2"
+  names(sumstats)[names(sumstats) == eff] <- "a1"
+  names(sumstats)[names(sumstats) == oth] <- "a0"
+  cat("NOTE: sumstats use allele1/allele2 naming. Assuming '", eff,
+      "' is the EFFECT allele (i.e. beta refers to it).\n", sep = "")
+  cat("      If that is wrong, re-run with --flip_effect_allele.\n")
+}
+
+# OR -> beta (only if beta is genuinely absent)
+if (!("beta" %in% names(sumstats)) && "or" %in% names(sumstats)) {
+  or_vals <- suppressWarnings(as.numeric(sumstats$or))
+  n_bad_or <- sum(!is.finite(or_vals) | or_vals <= 0, na.rm = TRUE)
+  if (n_bad_or > 0)
+    cat("WARNING:", n_bad_or, "non-positive/non-finite OR values -> beta set to NA\n")
+  or_vals[!is.finite(or_vals) | or_vals <= 0] <- NA_real_
+  sumstats$beta <- log(or_vals)
+  cat("Converted OR to beta (log scale)\n")
+}
+
+# Coerce chr/pos to numeric (strips a leading "chr" prefix if present)
+if (is.character(sumstats$chr) || is.factor(sumstats$chr)) {
+  sumstats$chr <- suppressWarnings(
+    as.integer(sub("^chr", "", tolower(as.character(sumstats$chr)))))
+}
+sumstats$pos <- suppressWarnings(as.numeric(sumstats$pos))
 
 # Check required columns
 required_cols <- c("chr", "pos", "a0", "a1", "beta", "p")
 missing_cols <- setdiff(required_cols, names(sumstats))
 if (length(missing_cols) > 0) {
-  stop("Missing required columns in summary statistics: ", paste(missing_cols, collapse = ", "))
+  stop("Missing required columns in summary statistics: ",
+       paste(missing_cols, collapse = ", "),
+       "\nColumns present: ", paste(names(sumstats), collapse = ", "))
 }
 
-# Split data into training and test sets
+# Drop rows that cannot be matched at all
+bad_rows <- with(sumstats, is.na(chr) | is.na(pos) | is.na(a0) | is.na(a1))
+if (any(bad_rows)) {
+  cat("Dropping", sum(bad_rows), "sumstats rows with missing chr/pos/alleles",
+      "(e.g. non-autosomal contigs)\n")
+  sumstats <- sumstats[!bad_rows, , drop = FALSE]
+}
+if (nrow(sumstats) == 0) stop("No usable rows left in the summary statistics.")
+
+# -----------------------------------------------------------------------------
+# Train / test split
+# -----------------------------------------------------------------------------
 set.seed(1)
 n_samples <- length(G_indices)
 
@@ -210,7 +294,9 @@ if (trait_type == "quantitative" && y_train_var < 1e-10) {
   stop("Training set phenotype has essentially no variance. Cannot train model.")
 }
 
+# -----------------------------------------------------------------------------
 # Match variants between genotype data and summary statistics
+# -----------------------------------------------------------------------------
 cat("Matching variants...\n")
 map <- obj.bigSNP$map[, c(1, 4, 5, 6)]
 names(map) <- c("chr", "pos", "a1", "a0")
@@ -225,43 +311,104 @@ if (nrow(info_snp) < nrow(sumstats) * 0.5) {
 }
 
 cat("Matched", nrow(info_snp), "variants out of", nrow(sumstats), "\n")
+if (nrow(info_snp) == 0) {
+  stop("No variants matched between the genotypes and the summary statistics. ",
+       "Check genome build, chromosome coding and allele columns.")
+}
 
-# Prepare beta and p-values for all SNPs
-beta <- rep(NA, ncol(G))
-beta[info_snp$`_NUM_ID_`] <- info_snp$beta
-lpval <- rep(NA, ncol(G))
-lpval[info_snp$`_NUM_ID_`] <- -log10(info_snp$p)
+# -----------------------------------------------------------------------------
+# Prepare beta and -log10(p) for all SNPs
+# -----------------------------------------------------------------------------
+# p-values of exactly 0 (float underflow, common in large meta-analyses) give
+# lpval = Inf, which propagates into snp_grid_PRS()'s default threshold grid and
+# throws "'to' must be a finite number". Floor them here, BEFORE clumping, so
+# that clumping and the PRS grid see exactly the same set of usable SNPs.
+p_clean <- suppressWarnings(as.numeric(info_snp$p))
+n_bad_p <- sum(!is.finite(p_clean) | p_clean <= 0, na.rm = TRUE) + sum(is.na(p_clean))
+if (n_bad_p > 0) {
+  cat("WARNING:", n_bad_p, "p-values were <= 0, NA or non-finite;",
+      "flooring at", P_FLOOR, "\n")
+}
+p_clean[is.na(p_clean) | !is.finite(p_clean) | p_clean <= 0] <- P_FLOOR
+p_clean[p_clean > 1] <- 1
 
-# Perform clumping
+beta <- rep(NA_real_, ncol(G))
+beta[info_snp$`_NUM_ID_`] <- suppressWarnings(as.numeric(info_snp$beta))
+beta[!is.finite(beta)] <- NA_real_
+
+lpval <- rep(NA_real_, ncol(G))
+lpval[info_snp$`_NUM_ID_`] <- -log10(p_clean)
+lpval[!is.finite(lpval)] <- NA_real_
+
+# Keep the two masks consistent: a SNP with no usable beta must not be clumped
+lpval[is.na(beta)] <- NA_real_
+beta[is.na(lpval)]  <- NA_real_
+
+n_usable <- sum(!is.na(lpval))
+cat("Usable SNPs (finite beta and p):", n_usable, "\n")
+if (n_usable == 0) stop("No SNPs with both a finite beta and a finite p-value.")
+cat("lpval range:", min(lpval, na.rm = TRUE), "to", max(lpval, na.rm = TRUE), "\n")
+
+# -----------------------------------------------------------------------------
+# Genotype missingness check
+# -----------------------------------------------------------------------------
+# NOTE: the previous `sum(is.na(as.list(G)))` did not inspect the genotype
+# matrix at all -- as.list() on an FBM returns the object's slots, so it always
+# printed 0. Count real missing calls (code 3) on a deterministic subsample.
+cat("Checking missing values in genotype data...\n")
+chk_cols <- unique(round(seq(1, ncol(G), length.out = min(1000L, ncol(G)))))
+cnts <- big_counts(G, ind.col = chk_cols)          # rows: 0, 1, 2, NA
+n_geno_na <- sum(cnts[4, ])
+cat("Missing calls in", length(chk_cols), "sampled SNPs:", n_geno_na,
+    sprintf("(%.4f%%)\n", 100 * n_geno_na / (length(chk_cols) * nrow(G))))
+if (n_geno_na > 0) {
+  cat("WARNING: genotypes contain missing values. bigsnpr requires imputed data",
+      "-- run snp_fastImputeSimple() / snp_fastImpute() first, or results will be wrong.\n")
+}
+
+# -----------------------------------------------------------------------------
+# Clumping
+# -----------------------------------------------------------------------------
 cat("Performing clumping...\n")
-all_keep <- snp_grid_clumping(G, CHR, POS, 
+all_keep <- snp_grid_clumping(G, CHR, POS,
                               ind.row = ind.train,
-                              lpS = lpval, 
+                              lpS = lpval,
                               exclude = which(is.na(lpval)),
                               ncores = NCORES)
 
 cat("Clumping completed with", nrow(attr(all_keep, "grid")), "parameter sets\n")
 
-
-cat("Checking missing values in genotype data...\n")
-
-sum(is.na(as.list(G)))
-
-# Calculate PRS for different thresholds
+# -----------------------------------------------------------------------------
+# PRS over the C+T grid
+# -----------------------------------------------------------------------------
 cat("Computing PRS for multiple thresholds...\n")
-
-# Check G's backing file path
 cat("G backing file:", G$backingfile, "\n")
 
+kept_idx <- unlist(all_keep)
+if (length(kept_idx) == 0)
+  stop("Clumping retained no SNPs -- check that lpval/exclude are correct.")
 
-multi_PRS <- snp_grid_PRS(G, all_keep, beta, lpval, 
+lp_max <- max(lpval[kept_idx], na.rm = TRUE)
+cat("Max -log10(p) among clumped SNPs:", lp_max, "\n")
+if (!is.finite(lp_max) || lp_max <= 0.1)
+  stop("No usable -log10(p) among clumped SNPs (max = ", lp_max, "). ",
+       "Cannot build a p-value threshold grid.")
+
+# Pass the grid explicitly rather than relying on the lazily-evaluated default,
+# so a non-finite value can never reach seq_log() unnoticed.
+lpS_grid <- seq_log(0.1, 0.999 * lp_max, 50)
+
+multi_PRS <- snp_grid_PRS(G, all_keep, beta, lpval,
                           ind.row = ind.train,
                           n_thr_lpS = 50,
+                          grid.lpS.thr = lpS_grid,
                           ncores = NCORES)
 
 cat("Computed", ncol(multi_PRS), "PRS for", nrow(multi_PRS), "individuals\n")
 
-# Perform stacking
+# -----------------------------------------------------------------------------
+# Stacking
+# -----------------------------------------------------------------------------
 cat("Performing stacking...\n")
 cat("Trait type for stacking:", trait_type, "\n")
 
@@ -275,28 +422,13 @@ if (trait_type == "quantitative") {
   y_train_std <- y_train
 }
 
-
-# Perform stacking with appropriate parameters
 # Stacking - no family parameter, auto-detected from y.train
-
-tryCatch({
-  final_mod <- snp_grid_stacking(
-    multi_PRS,
-    y_train_std,
-    ncores = NCORES,
-    K = opt$n_folds
-  )
- 
+final_mod <- tryCatch({
+  snp_grid_stacking(multi_PRS, y_train_std, ncores = NCORES, K = opt$n_folds)
 }, error = function(e) {
-  cat("Error in stacking:", e$message, "\n")
+  cat("Error in stacking:", conditionMessage(e), "\n")
   cat("Trying with K=2...\n")
-  final_mod <<- snp_grid_stacking(
-    multi_PRS,
-    y_train_std,
-    ncores = NCORES,
-    K = 2
-  )
- 
+  snp_grid_stacking(multi_PRS, y_train_std, ncores = NCORES, K = 2)
 })
 
 # Extract new beta values
@@ -304,10 +436,12 @@ new_beta <- final_mod$beta.G
 ind_keep <- which(new_beta != 0)
 
 cat("Number of non-zero SNPs:", length(ind_keep), "\n")
+if (length(ind_keep) == 0)
+  stop("Stacking shrank every coefficient to zero -- no predictive signal was retained.")
 
 # Calculate predictions on test set
 y_test <- y[test_idx]
-pred_test <- final_mod$intercept + 
+pred_test <- final_mod$intercept +
   big_prodVec(G, new_beta[ind_keep], ind.row = ind.test, ind.col = ind_keep)
 
 # Calculate appropriate metric based on trait type
@@ -315,7 +449,7 @@ if (trait_type == "binary") {
   # Calculate AUC for binary trait
   auc_result <- AUCBoot(pred_test, y_test)
   cat("Test AUC:", round(auc_result[1], 4), "\n")
-  
+
   # Save AUC results
   auc_df <- data.frame(
     Mean = auc_result[1],
@@ -332,15 +466,15 @@ if (trait_type == "binary") {
   } else {
     pred_test_orig <- pred_test
   }
-  
+
   cor_test <- cor(pred_test_orig, y_test, use = "complete.obs")
   r2_test <- cor_test^2
   rmse_test <- sqrt(mean((pred_test_orig - y_test)^2, na.rm = TRUE))
-  
+
   cat("Test correlation:", round(cor_test, 4), "\n")
   cat("Test R-squared:", round(r2_test, 4), "\n")
   cat("Test RMSE:", round(rmse_test, 4), "\n")
-  
+
   # Save quantitative metrics
   quant_metrics <- data.frame(
     Correlation = cor_test,
@@ -353,7 +487,7 @@ if (trait_type == "binary") {
 
 # Calculate PRS for all individuals
 cat("Calculating PRS for all individuals...\n")
-pred_all <- final_mod$intercept + 
+pred_all <- final_mod$intercept +
   big_prodVec(G, new_beta[ind_keep], ind.col = ind_keep)
 
 # For quantitative traits, unstandardize if needed
@@ -388,90 +522,97 @@ cat("Beta coefficients saved to:", paste0(opt$out, "_betas.csv"), "\n")
 # Save stacking model summary
 # fwrite(final_mod$mod, paste0(opt$out, "_stacking_summary.txt"), sep = "\t")
 
-# Create plots if ggplot2 is available
+# -----------------------------------------------------------------------------
+# Plots
+# -----------------------------------------------------------------------------
 if (requireNamespace("ggplot2", quietly = TRUE)) {
-  
+
   # Plot comparing GWAS betas to SCT betas
   if (length(ind_keep) > 0) {
     plot_data <- data.frame(
       gwas_beta = beta[ind_keep],
       sct_beta = new_beta[ind_keep]
     )
-    
+
     p1 <- ggplot(plot_data, aes(x = gwas_beta, y = sct_beta)) +
       geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
       geom_abline(slope = 0, intercept = 0, color = "blue", linetype = "dotted") +
       geom_point(size = 0.6, alpha = 0.5) +
       theme_minimal() +
-      labs(x = "Effect sizes from GWAS", 
+      labs(x = "Effect sizes from GWAS",
            y = "Non-zero effect sizes from SCT",
            title = "Comparison of GWAS and SCT effect sizes")
-    
+
     ggsave(paste0(opt$out, "_beta_comparison.pdf"), p1, width = 8, height = 6)
   }
-  
+
   # Plot PRS distribution
   plot_data2 <- data.frame(
     Phenotype = y,
     PRS = pred_all[G_indices]  # Match PRS to samples with phenotypes
   )
-  
+
   if (trait_type == "binary") {
-    plot_data2$Phenotype <- factor(plot_data2$Phenotype, 
-                                   levels = 0:1, 
+    plot_data2$Phenotype <- factor(plot_data2$Phenotype,
+                                   levels = 0:1,
                                    labels = c("Control", "Case"))
-    
-    p2 <- ggplot(plot_data2[!is.na(plot_data2$Phenotype), ], 
+
+    p2 <- ggplot(plot_data2[!is.na(plot_data2$Phenotype), ],
                  aes(x = PRS, fill = Phenotype)) +
       geom_density(alpha = 0.5) +
       theme_minimal() +
-      labs(x = "Polygenic Risk Score", 
+      labs(x = "Polygenic Risk Score",
            y = "Density",
            title = "PRS Distribution by Phenotype")
   } else {
     # For quantitative traits, show correlation
-    p2 <- ggplot(plot_data2[!is.na(plot_data2$Phenotype), ], 
+    p2 <- ggplot(plot_data2[!is.na(plot_data2$Phenotype), ],
                  aes(x = PRS, y = Phenotype)) +
       geom_point(alpha = 0.5) +
       geom_smooth(method = "lm", se = TRUE, color = "blue") +
       theme_minimal() +
-      labs(x = "Polygenic Risk Score", 
+      labs(x = "Polygenic Risk Score",
            y = pheno_col,
            title = paste("PRS vs", pheno_col)) +
-      annotate("text", x = Inf, y = Inf, 
-               label = paste("r =", round(cor(plot_data2$PRS, plot_data2$Phenotype, 
+      annotate("text", x = Inf, y = Inf,
+               label = paste("r =", round(cor(plot_data2$PRS, plot_data2$Phenotype,
                                              use = "complete.obs"), 3)),
                hjust = 1.1, vjust = 1.1)
   }
-  
+
   ggsave(paste0(opt$out, "_PRS_distribution.pdf"), p2, width = 8, height = 6)
   cat("Plots saved\n")
 }
 
-# Also find best single C+T model for comparison
+# -----------------------------------------------------------------------------
+# Best single C+T model, for comparison
+# -----------------------------------------------------------------------------
+# NOTE: this block was previously duplicated, with the first copy setting
+# s <- nrow(attr(all_keep, "grid")) (= number of clumping sets only). The
+# correct stride is the number of (clumping set x p-threshold) combinations,
+# i.e. nrow(grid2) after unnest().
 cat("\nFinding best single C+T model for comparison...\n")
-library(tidyr)
 
 grid2 <- attr(all_keep, "grid") %>%
   mutate(thr.lp = list(attr(multi_PRS, "grid.lpS.thr")), id = row_number()) %>%
   unnest(cols = "thr.lp")
 
-s <- nrow(attr(all_keep, "grid"))
+s <- nrow(grid2)
 n_chr <- length(unique(CHR))
+cat("Grid size s:", s, " n_chr:", n_chr, " ncol(multi_PRS):", ncol(multi_PRS), "\n")
 
-# Evaluate each C+T model
-# Best single C+T model
-library(tidyr)
-grid2 <- attr(all_keep, "grid") %>%
-  mutate(thr.lp = list(attr(multi_PRS, "grid.lpS.thr")), id = row_number()) %>%
-  unnest(cols = "thr.lp")
-
-s <- nrow(grid2)  # 28 clumping sets × 50 thresholds = 1400, NOT just 28
-n_chr <- length(unique(CHR))
-cat("Grid size s:", s, " n_chr:", n_chr, "\n")  # sanity check: s * n_chr should == ncol(multi_PRS)
+if (s * n_chr != ncol(multi_PRS)) {
+  if (ncol(multi_PRS) %% s == 0) {
+    n_chr <- ncol(multi_PRS) %/% s
+    cat("Adjusted n_chr to", n_chr, "based on ncol(multi_PRS)\n")
+  } else {
+    stop("Column layout mismatch: s (", s, ") does not divide ncol(multi_PRS) (",
+         ncol(multi_PRS), ").")
+  }
+}
 
 grid2$metric <- big_apply(multi_PRS, a.FUN = function(X, ind, s, n_chr, y.train, trait_type) {
-  single_PRS <- rowSums(X[, ind + s * (0:(n_chr - 1))])
+  single_PRS <- rowSums(X[, ind + s * (0:(n_chr - 1)), drop = FALSE])
   if (trait_type == "binary") {
     bigstatsr::AUC(single_PRS, y.train)
   } else {
@@ -481,13 +622,13 @@ grid2$metric <- big_apply(multi_PRS, a.FUN = function(X, ind, s, n_chr, y.train,
 a.combine = 'c', block.size = 1, ncores = NCORES)
 
 # Find best model
-best_ct <- grid2 %>% 
-  arrange(desc(metric)) %>% 
+best_ct <- grid2 %>%
+  arrange(desc(metric)) %>%
   slice(1)
 
 metric_name <- if(trait_type == "binary") "AUC" else "Correlation"
-cat("Best single C+T model: size =", best_ct$size, 
-    ", thr.r2 =", best_ct$thr.r2, 
+cat("Best single C+T model: size =", best_ct$size,
+    ", thr.r2 =", best_ct$thr.r2,
     ", thr.lp =", round(best_ct$thr.lp, 3),
     ", ", metric_name, "=", round(best_ct$metric, 4), "\n")
 

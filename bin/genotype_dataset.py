@@ -1,5 +1,5 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler, RandomSampler
 import h5py
 import numpy as np
 import pandas as pd
@@ -232,6 +232,25 @@ class GenotypeDataset(Dataset):
 
         # Encoded / 2D path — shape (n_snps, n_channels), act per SNP.
         n_snps = augmented.shape[0]
+        
+        # 'gene-prs' axis 0 is genes, which are position-bound to the GGI graph
+        # node index and to PRSNet.gene_embeddings. Permuting rows silently
+        # decorrelates every gene from its own embedding and neighbourhood.
+        if self.encoding == 'gene-prs':
+            if 'shuffle_regions' in self.augmentation_params:
+                raise ValueError(
+                    "shuffle_regions is invalid for encoding='gene-prs': gene "
+                    "position is bound to the GGI graph node index."
+                )
+            if 'noise_std' in self.augmentation_params:
+                logger.warning(
+                    "noise_std ignored for encoding='gene-prs' (feature scale is "
+                    "O(1e-3); genotype-tuned noise would dominate)."
+                )
+                self.augmentation_params = {
+                    k: v for k, v in self.augmentation_params.items() if k != 'noise_std'
+                }
+        
 
         # SNP dropout: zero out whole SNPs (all channels together) so the result
         # matches how the encoder represents a missing genotype.
@@ -286,7 +305,10 @@ class GenotypeDataModule:
         num_workers: int = 4,
         augment_train: bool = True,
         scale_target: bool = False,
-        augmentation_params: Optional[Dict] = None
+        augmentation_params: Optional[Dict] = None,
+        balanced_sampling: bool = False,
+        sampler_num_samples: Optional[int] = None,
+        cache_size: int = 1000,
     ):
         """
         Initialize the data module.
@@ -310,6 +332,9 @@ class GenotypeDataModule:
         self.augmentation_params = augmentation_params
         self.target_scalers: Dict[int, StandardScaler] = {}
         self.scale_target = scale_target
+        self.balanced_sampling = balanced_sampling
+        self.sampler_num_samples = sampler_num_samples
+        self.cache_size = cache_size
         
         # Load split indices
         indices_data = np.load(indices_file)
@@ -360,12 +385,35 @@ class GenotypeDataModule:
             target_scaler=self.get_target_scaler(fold) if self.scale_target else None
         )
         
-        # Set num_workers to 0 to avoid multiprocessing issues with HDF5
+        sampler = None
+        if self.balanced_sampling:
+            y = pd.read_csv(self.phenotype_file).iloc[indices, 0].values
+            classes, counts = np.unique(y[~np.isnan(y)], return_counts=True)
+            if len(classes) >= 2:
+                per_class = {c: 1.0 / n for c, n in zip(classes, counts)}
+                w = np.array([per_class.get(v, 0.0) for v in y], dtype=np.float64)
+                sampler = WeightedRandomSampler(
+                    weights=torch.DoubleTensor(w),
+                    num_samples=self.sampler_num_samples or len(indices),
+                    replacement=True,
+                )
+            else:
+                logger.warning(
+                    f"balanced_sampling requested but phenotype has {len(classes)} "
+                    "class(es); falling back to shuffle."
+                )
+        elif self.sampler_num_samples:
+            sampler = RandomSampler(
+                dataset, replacement=True, num_samples=self.sampler_num_samples
+            )
+
+        # num_workers stays 0 to avoid multiprocessing issues with HDF5
         return DataLoader(
             dataset,
             batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=0,  # Changed from self.num_workers to 0
+            shuffle=(sampler is None),   # PyTorch rejects shuffle + sampler together
+            sampler=sampler,
+            num_workers=0,
             pin_memory=torch.cuda.is_available()
         )
     
@@ -381,7 +429,8 @@ class GenotypeDataModule:
             self.phenotype_file,
             indices=indices,
             augment=False,
-            target_scaler=self.get_target_scaler(fold) if self.scale_target else None
+            target_scaler=self.get_target_scaler(fold) if self.scale_target else None,
+            cache_size=self.cache_size
         )
         
         # Set num_workers to 0 to avoid multiprocessing issues with HDF5
@@ -400,7 +449,8 @@ class GenotypeDataModule:
             self.phenotype_file,
             indices=self.test_indices,
             augment=False,
-            target_scaler=self.get_target_scaler(0) if self.scale_target else None
+            target_scaler=self.get_target_scaler(0) if self.scale_target else None,
+            cache_size=self.cache_size
         )
         
         # Set num_workers to 0 to avoid multiprocessing issues with HDF5

@@ -2,15 +2,15 @@
 # Usage: nextflow run workflows/prs_models_pipeline.nf -params-file params_prs.yaml
 
 # General Settings
-population: UKB_T2D
+population: opensnp_height
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
-sumstats: t2d_sumstats
+sumstats: opensnp_height_stats
 
 # Use existing QC data
 use_existing_qc: true
-qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/UKB_T2D.QC
-pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/UKB_T2D/UKB_T2D.eigenvec
-sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/t2d_sumstats.QC
+qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/opensnp_height.QC
+pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/opensnp_height/opensnp_height.eigenvec
+sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/opensnp_height_stats.QC
 
 # Model Selection
 run_lassosum: false
@@ -21,8 +21,8 @@ run_prs_csx: false
 run_sbayesr: false
 run_prset: false
 run_lassosum2: false
-run_sct: false
-run_ldpred2_cli: true
+run_sct: true
+run_ldpred2_cli: false
 
 run_create_folds: false
 
@@ -30,23 +30,23 @@ run_create_folds: false
 prsice:
   a1: A1
   a2: A2
-  stat: OR
-  binary_target: T
+  stat: BETA
+  binary_target: F
   base_maf: "MAF:0.01"
   base_info: "INFO:0.8"
 
 # LDpred2 Parameters
 ldpred2:
-  trait: bin # bin or quant
+  trait: quant # bin or quant
   model: auto
 
 # PRS-CS Parameters
 prs_cs:
-  n_gwas: 64000
+  n_gwas: 360388
 
 # PRS-CSX Parameters
 prs_csx:
-  n_gwas: 64000
+  n_gwas: 360388
   population: EUR # AFR, AMR, EAS, EUR and SAS are allowed
 
 # SBAYESR Parameters
@@ -58,8 +58,8 @@ sbayesr:
 prset:
   a1: A1
   a2: A2
-  stat: OR
-  binary_target: T
+  stat: BETA
+  binary_target: F
   base_maf: "MAF:0.01"
   base_info: "INFO:0.8"
   gtf: "gene.gtf"
@@ -67,8 +67,8 @@ prset:
 
 # LASSOSUM2 Parameters
 lassosum2:
-  sample_size: 64000
-  trait: "binary" # binary or quant
+  sample_size: 360388
+  trait: "quant" # binary or quant
 
 sct:
   split: 0.8

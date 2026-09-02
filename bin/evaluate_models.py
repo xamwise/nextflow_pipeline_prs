@@ -70,6 +70,7 @@ class PRSEvaluator:
             config = checkpoint['config']['model']
             config['input_dim'] = data_module.get_input_dim()
             config['output_dim'] = data_module.get_output_dim()
+            config['n_channels'] = data_module.get_n_channels()
             
             # Create and load model
             model = create_model(config)

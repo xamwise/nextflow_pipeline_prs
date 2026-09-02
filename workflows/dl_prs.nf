@@ -3,47 +3,19 @@
 nextflow.enable.dsl=2
 
 
-// Pipeline parameters - no more hardcoded paths or nextflow.config dependency
-// params.base_dir = "/Users/max/Desktop/PRS_Models/nextflow_pipeline_prs"
-// input_plink = "${params.base_dir}/data/qc/UKB_CRC.QC"
+include {PRSNET_FEATURES} from '../modules/local/prsnet'
 
-// input_plink = "${params.base_dir}/data/raw/UKB_ALZ/UKB_ALZ"
-// phenotype_file = "${params.base_dir}/data/raw/UKB_ALZ/UKB_ALZ.pheno"  // Optional, if phenotype not in PLINK
 
 params.outdir = "${params.base_dir_parse}/out"
 params.config = "${params.base_dir_parse}/workflows/config/training_config.yaml"
+// params.config = "${params.base_dir_parse}/workflows/config/training_config_prsnet.yaml" // for PRS-net
+
 
 params.input_plink = "${params.base_dir_parse}/${params.input_plink_parse}"
 params.phenotype_file = "${params.base_dir_parse}/${params.phenotype_file_parse}"
 
-// // Data reuse parameters (lessons from sklearn pipeline)
-// params.data_reuse = [:]
-// params.data_reuse.use_existing_converted = false
-// params.data_reuse.existing_genotype_file = ""
-// params.data_reuse.existing_phenotype_file = ""
-// params.data_reuse.use_existing_splits = false
-// params.data_reuse.existing_splits_file = ""
-
-// // Training parameters with defaults
-// params.n_folds = 5
-// params.test_size = 0.2
-// params.val_size = 0.1
-// params.seed = 42
-// params.max_epochs = 50
-// params.batch_size = 32
-// params.learning_rate = 1e-5
-// params.model_type = "standard"  // Options: bayesian, standard
-// params.n_gpus = 1  // For multi-GPU training
-
-// // Make hyperparameter optimization optional
-// params.hyperopt = [:]
-// params.hyperopt.enabled = false  // Optional by default
-// params.hyperopt.n_trials = 20
-
-// // Optional wandb
-// params.use_wandb = false
-// params.wandb_project = "prs-prediction-DL"
-// params.wandb_entity = ""
+params.stats_file = "${params.base_dir_parse}/${params.sum_stats_parse}"
+params.ld_ref = "${params.base_dir_parse}/${params.input_plink_parse}"
 
 // Process definitions remain mostly the same but with params.base_dir
 process CONVERT_PLINK {
@@ -159,7 +131,7 @@ process TRAIN_KFOLD {
     publishDir "${params.outdir}/models/fold_${fold}", mode: 'copy'
     
     input:
-    tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file)
+    tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file), path(ggi_graph)
     
     output:
     tuple val(fold), path("model_fold_${fold}.pt"), emit: model
@@ -194,7 +166,7 @@ process TRAIN_KFOLD_BAYESIAN {
     publishDir "${params.outdir}/models/fold_${fold}", mode: 'copy'
     
     input:
-    tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file)
+    tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file), path(ggi_graph)
     
     output:
     tuple val(fold), path("model_fold_${fold}.pt"), emit: model
@@ -230,7 +202,7 @@ process TRAIN_KFOLD_MULTI_GPU {
     publishDir "${params.outdir}/models/fold_${fold}", mode: 'copy'
     
     input:
-    tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file)
+    tuple val(fold), path(genotype_data), path(phenotypes), path(indices), path(params_file), path(ggi_graph)
     
     output:
     tuple val(fold), path("model_fold_${fold}.pt"), emit: model
@@ -274,6 +246,7 @@ process EVALUATE_MODELS {
     path genotype_data
     path phenotypes
     path indices
+    path ggi_graph
     
     output:
     path "final_evaluation_report.html"
@@ -299,12 +272,27 @@ process EVALUATE_MODELS {
 // Main workflow
 workflow {
     config_ch = Channel.fromPath(params.config)
-    
-    // Step 1: Convert PLINK or use existing converted data
-    if (params.data_reuse.use_existing_converted && 
+
+    if (params.model_type == 'prsnet') {
+        PRSNET_FEATURES(
+            Channel.fromPath(params.stats_file),
+            Channel.fromFilePairs("${params.input_plink}.{bed,bim,fam}", size: 3)
+                .map { _pfx, files -> tuple(files[0], files[1], files[2]) },
+            Channel.fromFilePairs("${params.ld_ref}.{bed,bim,fam}", size: 3)
+                .map { _pfx, files -> tuple(files[0], files[1], files[2]) },
+            Channel.fromPath(params.phenotype_file)
+        )
+        genotype_data  = PRSNET_FEATURES.out.genotype_data
+        phenotype_data = PRSNET_FEATURES.out.phenotypes
+        stats_data     = PRSNET_FEATURES.out.stats
+    } else if (params.data_reuse.use_existing_converted && 
         file(params.data_reuse.existing_genotype_file).exists() &&
         file(params.data_reuse.existing_phenotype_file).exists()) {
         
+    // Step 1: Convert PLINK or use existing converted data
+
+
+
         genotype_data = Channel.fromPath(params.data_reuse.existing_genotype_file)
         phenotype_data = Channel.fromPath(params.data_reuse.existing_phenotype_file)
         stats_data = Channel.empty()  // Stats might not exist for reused data
@@ -316,6 +304,14 @@ workflow {
         phenotype_data = CONVERT_PLINK.out.phenotypes
         stats_data = CONVERT_PLINK.out.stats
     }
+
+    if (params.model_type == 'prsnet') {
+        graph_ch = PRSNET_FEATURES.out.graph
+    } else {
+        def no_graph = file("${workDir}/prsnet_assets/NO_GRAPH")
+        if (!no_graph.exists()) { no_graph.parent.mkdirs(); no_graph.text = '' }
+        graph_ch = Channel.value(no_graph)
+    }    
     
     // Step 2: Split data or use existing splits
     if (params.data_reuse.use_existing_splits && 
@@ -358,6 +354,7 @@ workflow {
         .combine(phenotype_data)
         .combine(splits_indices)
         .combine(params_to_use)
+        .combine(graph_ch)
     
     if (params.model_type == "bayesian" || params.model_type == "bnn") {
         TRAIN_KFOLD_BAYESIAN(train_input)
@@ -390,7 +387,8 @@ workflow {
         all_metrics,
         genotype_data,
         phenotype_data,
-        splits_indices
+        splits_indices,
+        graph_ch
     )
 }
 

@@ -2,10 +2,10 @@
 # Usage: nextflow run workflows/qc_pipeline.nf -params-file params_qc_only.yaml
 
 # General Settings
-population: UKB_ALZ
+population: opensnp_height
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
 
-sumstats: alzheimers_sumstats_hg37
+sumstats: opensnp_height_stats
 
 # Quality Control Parameters
 qc:

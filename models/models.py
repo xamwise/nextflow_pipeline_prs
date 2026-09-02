@@ -26,6 +26,8 @@ from .mlp_model_regression import SimpleMLP_R
 from .cnn_model_regression import SimpleCNNModel_R
 from .lstm_model_regression import LSTMModel_R
 
+from .prsnet_model import PRSNet, PRSNetWrapper
+
 # Re-export models for convenience
 __all__ = [
     'SimpleMLP',
@@ -44,6 +46,9 @@ __all__ = [
     'AdvancedMLP',
     'AdvancedCNN',
     'AdvancedLSTM',
+    
+    'PRSNet',
+    'PRSNetWrapper',
 
     'create_model'
 ]
@@ -55,7 +60,7 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
     
     Args:
         config: Model configuration dictionary containing:
-            - model_type: Type of model to create ('mlp', 'cnn', 'transformer', 'attention', 'lstm', 'bayesian', 'point_transformer')
+            - model_type: Type of model to create ('mlp', 'cnn', 'transformer', 'attention', 'lstm', 'bayesian', 'point_transformer', 'prsnet')
             - input_dim: Number of input features (SNPs)
             - output_dim: Number of output features (phenotypes)
             - Other model-specific parameters
@@ -247,7 +252,28 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
             first_layer_l1=config.get('first_layer_l1', 0.0),
             n_channels=n_channels
         )
-    
+        
+    elif model_type == 'prsnet':
+        ps = config.get('prsnet', {})
+        if 'ggi_graph' not in ps:
+            raise ValueError("model.prsnet.ggi_graph is required for model_type='prsnet'")
+        return PRSNetWrapper(
+            graph_file=ps['ggi_graph'],              # ggi_graph.npz
+            input_dim=input_dim,                     # n_genes
+            n_channels=n_channels,                   # 11 thresholds
+            output_dim=output_dim,
+            ancestry_file=ps.get('ancestry_file'),
+            d_hidden=ps.get('d_hidden', 64),
+            n_layers=ps.get('gnn_layers', 1),        # NOT 'n_layers' -- collides
+            n_gene_encode_layer=ps.get('n_gene_encode_layer', 1),
+            n_predictor_layer=ps.get('n_predictor_layer', 2),
+            mlp_hidden_ratio=ps.get('mlp_hidden_ratio', 1),
+            pre_norm=ps.get('pre_norm', False),
+            dropout=ps.get('dropout', 0.0),
+            multiple_ancestries=ps.get('multiple_ancestries', False),
+            bn_bug_compat=ps.get('bn_bug_compat', False),
+        )
+        
     else:
         raise ValueError(
             f"Unknown model type: {model_type}. "
@@ -416,6 +442,21 @@ def get_model_info(model_type: str) -> Dict[str, Any]:
                 'n_layers': 2,
                 'dropout_rate': 0.3,
                 'pool': 'mean'
+            }
+        },
+        'prsnet': {
+            'class': PRSNetWrapper,
+            'description': 'PRSNet model for gene-based polygenic risk score prediction',
+            'default_params': {
+                'd_hidden': 64,
+                'gnn_layers': 1,
+                'n_gene_encode_layer': 1,
+                'n_predictor_layer': 2,
+                'mlp_hidden_ratio': 1,
+                'pre_norm': False,
+                'dropout': 0.0,
+                'multiple_ancestries': False,
+                'bn_bug_compat': False
             }
         }
     }

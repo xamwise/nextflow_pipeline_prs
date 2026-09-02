@@ -721,7 +721,10 @@ def main():
         batch_size=args.batch_size,
         num_workers=config.get('num_workers', 4),
         augment_train=config.get('augment_train', True),
-        augmentation_params=config.get('augmentation_params', {})
+        augmentation_params=config.get('augmentation_params', {}),
+        balanced_sampling=config.get('balanced_sampling', False),
+        sampler_num_samples=config.get('sampler_num_samples'),
+        cache_size=config.get('cache_size', 1000)
     )
     
     # Get dimensions
