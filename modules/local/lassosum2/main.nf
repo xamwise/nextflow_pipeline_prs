@@ -13,10 +13,11 @@ process lassosum2{
     val trait
     val sample_size
     val out
+    val genetic_map_dir
 
     output:
     val out
-    
+
     script:
     """
     mkdir -p ${out}
@@ -29,6 +30,7 @@ process lassosum2{
         --trait $trait \
         --n_samples $sample_size \
         --relax_qc 'TRUE' \
+        --genetic_map_dir $genetic_map_dir \
         --out $out/lassosum2
     """
 }

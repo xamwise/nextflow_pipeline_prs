@@ -1,53 +1,51 @@
-# PRS Models Pipeline Parameters
-# Usage: nextflow run workflows/prs_models_pipeline.nf -params-file params_prs.yaml
+# PRS Models Pipeline Parameters (hold-out test set + k-fold cross-validation)
+# Usage: nextflow run workflows/holdout_kfold_prs_models_pipeline.nf -params-file workflows/config/params_prs_kfold.yaml
 
 # General Settings
-population: opensnp_height
+population: brc_sim
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
-sumstats: opensnp_height_stats
+sumstats: breast_cancer_sumstats
 
 # Use existing QC data
 use_existing_qc: true
-qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/opensnp_height.QC
-pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/opensnp_height/opensnp_height.eigenvec
-sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/opensnp_height_stats.QC
+qc_data_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/qc/brc_sim.QC
+pcs_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/raw/brc_sim/brc_sim.eigenvec
+sum_stats_qc_path: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs/data/supplement_data/sum_stats/breast_cancer_sumstats.QC
 
 # Model Selection
-run_lassosum: false
-run_prsice: false
-run_ldpred2: false
-run_prs_cs: false
-run_prs_csx: false
-run_sbayesr: false
+run_lassosum: true
+run_prsice: true
+run_ldpred2: true 
+run_prs_cs: true
+run_prs_csx: true
+run_sbayesr: true
 run_sbayesrc_gctb: false
 run_prset: false
-run_lassosum2: false
+run_lassosum2: true
 run_sct: true
-run_ldpred2_cli: false
-
-run_create_folds: false
+run_ldpred2_cli: true
 
 # PRSice Parameters
 prsice:
   a1: A1
   a2: A2
-  stat: BETA
-  binary_target: F
+  stat: OR # BETA or OR
+  binary_target: T
   base_maf: "MAF:0.01"
   base_info: "INFO:0.8"
 
 # LDpred2 Parameters
 ldpred2:
-  trait: quant # bin or quant
+  trait: bin # bin or quant
   model: auto
 
 # PRS-CS Parameters
 prs_cs:
-  n_gwas: 360388
+  n_gwas: 228000
 
 # PRS-CSX Parameters
 prs_csx:
-  n_gwas: 360388
+  n_gwas: 228000
   population: EUR # AFR, AMR, EAS, EUR and SAS are allowed
 
 # SBAYESR Parameters
@@ -73,12 +71,18 @@ prset:
 
 # LASSOSUM2 Parameters
 lassosum2:
-  sample_size: 360388
-  trait: "quant" # binary or quant
+  sample_size: 228000
+  trait: "binary" # binary or quant
 
 sct:
   split: 0.8
 
+# Hold-out test set, split off before the k-fold split
+holdout:
+  test_size: 0.1
+  random_state: 42
+
+# K-fold split of the remaining (development) samples
 folds:
   n_folds: 10
   random_state: 42

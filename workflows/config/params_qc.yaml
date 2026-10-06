@@ -2,10 +2,10 @@
 # Usage: nextflow run workflows/qc_pipeline.nf -params-file params_qc_only.yaml
 
 # General Settings
-population: opensnp_height
+population: UKB_BRC
 base_dir: /Users/max/Desktop/PRS_Models/nextflow_pipeline_prs
 
-sumstats: opensnp_height_stats
+sumstats: breast_cancer_sumstats
 
 # Quality Control Parameters
 qc:

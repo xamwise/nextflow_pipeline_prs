@@ -28,7 +28,10 @@ option_list <- list(
   make_option(c("-m", "--model"),     type = "character", default = NULL,
               help = "Model type: 'inf', 'grid', or 'auto'",     metavar = "character"),
   make_option(c("-o", "--out"),       type = "character", default = NULL,
-              help = "Output file name",                          metavar = "character")
+              help = "Output file name",                          metavar = "character"),
+  make_option(c("--genetic_map_dir"), type = "character", default = ".",
+              help = "Folder with the genetic maps for snp_asGeneticPos (downloaded there if missing)",
+              metavar = "character")
 )
 
 opt <- parse_args(OptionParser(option_list = option_list))
@@ -106,7 +109,7 @@ info_snp <- snp_match(sumstats, map)
 
 CHR  <- map$chr
 POS  <- map$pos
-POS2 <- snp_asGeneticPos(CHR, POS, dir = ".")
+POS2 <- snp_asGeneticPos(CHR, POS, dir = opt$genetic_map_dir)
 
 # ── Compute LD matrix ─────────────────────────────────────────────────────────
 

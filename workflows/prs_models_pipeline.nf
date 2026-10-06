@@ -29,6 +29,10 @@ include { lassosum2 } from '../modules/local/lassosum2'
 include { sct } from '../modules/local/sct'
 include { create_folds } from '../modules/local/create_folds'
 include { ldpred2_cli } from '../modules/local/ldpred2_cli'
+include { align_pheno } from '../modules/local/align_pheno'
+include { genetic_maps } from '../modules/local/genetic_maps'
+include { gctb_ma } from '../modules/local/gctb_ma'
+include { sbayesrc_gctb } from '../modules/local/sbayesrc_gctb'
 
 // Import QC pipeline if needed
 include { QC_PIPELINE } from './qc_pipeline.nf'
@@ -55,7 +59,21 @@ workflow PRS_MODELS {
         cov_file = "${raw_dir}/${population}.cov"
         eigenvec_file = "${raw_dir}/${population}.eigenvec"
         qc_prefix = "${qc_dir}/${population}.QC"
-        
+
+        // Align the .pheno file to the QC'd .fam: one row per .fam sample in .fam order, NA if no
+        // phenotype (SCT.R uses the phenotypes positionally, lassosum.R labels its PRS with the .pheno IDs)
+        align_pheno(
+            pheno_file,
+            qc_data.map { "${it}.fam" },
+            "${qc_prefix}.pheno"
+        )
+        aligned_pheno = align_pheno.out
+
+        // Genetic maps for the LD matrices of LDpred2 / LassoSum2, downloaded once into a shared folder
+        if (params.run_ldpred2 || params.run_lassosum2) {
+            genetic_maps("${supplement_data_dir}/genetic_maps")
+        }
+
         // Combine covariates with PCs
         combine_cov(
             cov_file,
@@ -78,7 +96,7 @@ workflow PRS_MODELS {
         if (params.run_lassosum) {
             lassosum(
                 qc_data,
-                pheno_file,
+                aligned_pheno,
                 cov_file,
                 pcs_file,
                 sum_stats_qc,
@@ -90,7 +108,7 @@ workflow PRS_MODELS {
         if (params.run_prsice) {
             prsice(
                 sum_stats_qc,
-                pheno_file,
+                aligned_pheno,
                 qc_data,
                 combine_cov.out,
                 "${results_dir}/prsice",
@@ -107,7 +125,7 @@ workflow PRS_MODELS {
         if (params.run_ldpred2) {
             ldpred2(
                 qc_data,
-                pheno_file,
+                aligned_pheno,
                 cov_file,
                 pcs_file,
                 "${ld_dir}/map.rds",
@@ -116,14 +134,15 @@ workflow PRS_MODELS {
                 params.ldpred2.model ?: "inf",
                 "${results_dir}/ldpred2/",
                 population,
-                qc_dir
+                qc_dir,
+                genetic_maps.out
             )
         }
 
         if (params.run_ldpred2_cli) {
             ldpred2_cli(
                 qc_data,
-                pheno_file,
+                aligned_pheno,
                 cov_file,
                 pcs_file,
                 "${ld_dir}/map.rds",
@@ -191,11 +210,31 @@ workflow PRS_MODELS {
             )
         }
 
-        // // Model 7: PRSet 
+        // Model 6b: SBayesRC with the GCTB command line tool (second SBayesRC implementation)
+        if (params.run_sbayesrc_gctb) {
+            gctb_ld = "${ld_dir}/${params.sbayesrc_gctb?.ld_folder ?: params.sbayesr?.ld_folder}"
+
+            // Summary statistics in the GCTB .ma format (log(OR) for binary traits, frequency of A1)
+            gctb_ma(
+                sum_stats_qc,
+                "${gctb_ld}/snp.info",
+                "${sum_stats_dir}/${params.sumstats}.gctb.ma"
+            )
+
+            sbayesrc_gctb(
+                gctb_ma.out,
+                gctb_ld,
+                "${supplement_data_dir}/${params.sbayesrc_gctb?.annotation ?: params.sbayesr?.annotation}",
+                qc_data,
+                "${results_dir}/sbayesrc_gctb"
+            )
+        }
+
+        // // Model 7: PRSet
         if (params.run_prset) {
             prset(
                 sum_stats_qc,
-                pheno_file,
+                aligned_pheno,
                 qc_data,
                 combine_cov.out,
                 "${results_dir}/prset/prset",
@@ -214,13 +253,14 @@ workflow PRS_MODELS {
         if (params.run_lassosum2) {
             lassosum2(
                 qc_data,
-                pheno_file,
+                aligned_pheno,
                 cov_file,
                 pcs_file,
                 sum_stats_qc,
                 params.lassosum2.trait,
                 params.lassosum2.sample_size,
-                "${results_dir}/lassosum2/"
+                "${results_dir}/lassosum2/",
+                genetic_maps.out
             )
         }
 
@@ -229,7 +269,7 @@ workflow PRS_MODELS {
             sct(
                 qc_data,
                 sum_stats_qc,
-                pheno_file,
+                aligned_pheno,
                 params.sct.split ?: 0.7,
                 "${results_dir}/sct/sct",
                 "${results_dir}/sct"
@@ -243,6 +283,7 @@ workflow PRS_MODELS {
         prs_cs_results = params.run_prs_cs ? prs_cs.out : Channel.empty()
         prs_csx_results = params.run_prs_csx ? prs_csx.out : Channel.empty()
         sbayesr_results = params.run_sbayesr ? sbayesr.out : Channel.empty()
+        sbayesrc_gctb_results = params.run_sbayesrc_gctb ? sbayesrc_gctb.out : Channel.empty()
         prset_results = params.run_prset ? prset.out : Channel.empty()
         lassosum2_results = params.run_lassosum2 ? lassosum2.out : Channel.empty()
         sct_results = params.run_sct ? sct.out : Channel.empty()

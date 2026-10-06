@@ -39,7 +39,10 @@ option_list = list(
   make_option(c("--af_diff_thresh"), type="numeric", default=0.1,
               help="Allele frequency difference threshold [default: 0.1]", metavar="numeric"),
   make_option(c("--relax_qc"), type="logical", default=FALSE,
-              help="Use relaxed QC filters [default: FALSE]", metavar="logical")
+              help="Use relaxed QC filters [default: FALSE]", metavar="logical"),
+  make_option(c("--genetic_map_dir"), type="character", default=".",
+              help="folder with the genetic maps for snp_asGeneticPos (downloaded there if missing) [default: .]",
+              metavar="character")
 )
 
 opt_parser = OptionParser(option_list=option_list)
@@ -276,8 +279,7 @@ for (chr in 1:22) {
   }
   
   # genetic positions (in cM)
-  # Use current directory for genetic map downloads (Nextflow working directory)
-  POS2 <- snp_asGeneticPos(map$chr[ind.chr2], map$pos[ind.chr2], dir = ".")
+  POS2 <- snp_asGeneticPos(map$chr[ind.chr2], map$pos[ind.chr2], dir = opt$genetic_map_dir)
   
   # compute the banded correlation matrix in sparse matrix format
   corr0 <- snp_cor(G, ind.col = ind.chr2, size = 3 / 1000, infos.pos = POS2, 

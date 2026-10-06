@@ -16,6 +16,7 @@ process ldpred2 {
     val out
     val data
     val qc_prefix
+    val genetic_map_dir
 
     output:
     val out
@@ -25,7 +26,7 @@ process ldpred2 {
 
     mkdir -p ${qc_prefix}/${data}/tmp-data
     mkdir -p ${out}
-    Rscript ${params.base_dir}/bin/LDpred-2.R --bed $bed --pheno $pheno --cov $cov --pcs $pcs --ld $ld --sum_stats $sum_stats --trait $trait --model $model --out $out/ldpred2 
+    Rscript ${params.base_dir}/bin/LDpred-2.R --bed $bed --pheno $pheno --cov $cov --pcs $pcs --ld $ld --sum_stats $sum_stats --trait $trait --model $model --genetic_map_dir $genetic_map_dir --out $out/ldpred2
     """
 
 }
